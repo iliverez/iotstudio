@@ -58,10 +58,10 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 
 	s.logger.Info().Str("addr", addr).Msg("Starting server")
 
-	err := make(chan error, 1)
+	serverErr := make(chan error, 1)
 	go func() {
 		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			err <- err
+			serverErr <- err
 		}
 	}()
 
@@ -71,7 +71,7 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		return s.httpServer.Shutdown(shutdownCtx)
-	case e := <-err:
+	case e := <-serverErr:
 		return e
 	}
 }
