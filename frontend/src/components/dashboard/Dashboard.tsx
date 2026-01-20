@@ -1,12 +1,9 @@
 import { Responsive, Layout } from 'react-grid-layout'
-import WidthProvider from 'react-grid-layout'
 import { StatusCard } from './StatusCard'
 import { WidgetContainer } from './WidgetContainer'
 import type { Widget } from '@/types'
 import 'react-grid-layout/css/styles.css'
 import './Dashboard.css'
-
-const ResponsiveGridLayout = WidthProvider(Responsive)
 
 interface DashboardProps {
   widgets?: Widget[]
@@ -15,10 +12,6 @@ interface DashboardProps {
 
 export function Dashboard({ widgets = [], onLayoutChange }: DashboardProps) {
   const layouts = widgets.map((w) => ({ i: w.id, ...w.layout }))
-
-  const handleLayoutChange = (currentLayout: Layout[]) => {
-    onLayoutChange?.(currentLayout)
-  }
 
   const renderWidget = (widget: Widget) => {
     const commonProps = {
@@ -46,8 +39,9 @@ export function Dashboard({ widgets = [], onLayoutChange }: DashboardProps) {
 
   return (
     <div className="dashboard">
-      <ResponsiveGridLayout
+      <Responsive
         className="layout"
+        width={1200}
         breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480 }}
         cols={{ lg: 12, md: 10, sm: 6, xs: 4 }}
         rowHeight={60}
@@ -57,16 +51,18 @@ export function Dashboard({ widgets = [], onLayoutChange }: DashboardProps) {
           sm: layouts.map((l) => ({ ...l, w: 6, x: 0, y: Infinity })),
           xs: layouts.map((l) => ({ ...l, w: 3, x: 0, y: Infinity })),
         }}
-        onLayoutChange={handleLayoutChange}
-        isDraggable={true}
-        isResizable={true}
+        onLayoutChange={(allLayouts: any) => {
+          if (allLayouts?.lg) {
+            onLayoutChange?.(allLayouts.lg as Layout[])
+          }
+        }}
       >
         {widgets.map((widget) => (
           <div key={widget.id}>
             {renderWidget(widget)}
           </div>
         ))}
-      </ResponsiveGridLayout>
+      </Responsive>
     </div>
   )
 }
