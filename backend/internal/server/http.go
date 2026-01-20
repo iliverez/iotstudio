@@ -52,7 +52,14 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 
 	mux.HandleFunc("/health", s.healthCheck)
 	mux.HandleFunc("/ws", s.handleWebSocket)
-	mux.HandleFunc("/api/", s.handleAPI)
+	mux.HandleFunc("/api/sessions", s.handleSessions)
+	mux.HandleFunc("/api/sessions/", s.handleSessions)
+	mux.HandleFunc("/api/connections", s.handleConnections)
+	mux.HandleFunc("/api/connections/", s.handleConnections)
+	mux.HandleFunc("/api/devices", s.handleDevices)
+	mux.HandleFunc("/api/devices/", s.handleDevices)
+	mux.HandleFunc("/api/parsers", s.handleParsers)
+	mux.HandleFunc("/api/parsers/", s.handleParsers)
 
 	s.httpServer = &http.Server{
 		Addr:         addr,
@@ -90,6 +97,112 @@ func (s *Server) healthCheck(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("API endpoint"))
+}
+
+func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	switch r.Method {
+	case "GET":
+		sessions, err := s.storage.ListSessions(r.Context())
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error": "${err.Error()}"}`))
+			return
+		}
+		json.NewEncoder(w).Encode(sessions)
+
+	case "POST":
+		var session models.Session
+		if err := json.NewDecoder(r.Body).Decode(&session); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "Invalid request body"}`))
+			return
+		}
+		session.ID = uuid.New().String()
+		session.CreatedAt = time.Now()
+		session.Status = "idle"
+
+		if err := s.storage.CreateSession(r.Context(), &session); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error": "${err.Error()}"}`))
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(session)
+	}
+}
+
+func (s *Server) handleConnections(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"connections": []}`))
+}
+
+func (s *Server) handleDevices(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	switch r.Method {
+	case "GET":
+		devices, err := s.storage.ListDevices(r.Context())
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error": "${err.Error()}"}`))
+			return
+		}
+		json.NewEncoder(w).Encode(devices)
+
+	case "POST":
+		var device models.Device
+		if err := json.NewDecoder(r.Body).Decode(&device); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "Invalid request body"}`))
+			return
+		}
+		device.ID = uuid.New().String()
+		device.CreatedAt = time.Now()
+
+		if err := s.storage.CreateDevice(r.Context(), &device); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error": "${err.Error()}"}`))
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(device)
+	}
+}
+
+func (s *Server) handleParsers(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	switch r.Method {
+	case "GET":
+		parsers, err := s.storage.ListParsers(r.Context())
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error": "${err.Error()}"}`))
+			return
+		}
+		json.NewEncoder(w).Encode(parsers)
+
+	case "POST":
+		var parser models.Parser
+		if err := json.NewDecoder(r.Body).Decode(&parser); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "Invalid request body"}`))
+			return
+		}
+		parser.ID = uuid.New().String()
+		parser.CreatedAt = time.Now()
+
+		if err := s.storage.CreateParser(r.Context(), &parser); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error": "${err.Error()}"}`))
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(parser)
+	}
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {

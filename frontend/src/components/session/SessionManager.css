@@ -19,6 +19,48 @@
   text-align: center;
   padding: 3rem 1rem;
   color: #666;
+  font-size: 1rem;
+}
+
+.empty-state p {
+  font-size: 1rem;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  color: #fff;
+  font-size: 1rem;
+}
+
+.error-message {
+  margin: 1rem;
+  padding: 1rem;
+  background-color: #dc3545;
+  color: #fff;
+  border-radius: 0.5rem;
+  text-align: center;
+}
+
+.session-manager-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+
+.session-manager-header h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: #fff;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: #666;
 }
 
 .empty-state p {

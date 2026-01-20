@@ -8,14 +8,21 @@ export function SessionManager() {
   const { sessions, setSessions } = useDashboardStore()
   const [showForm, setShowForm] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  console.log('SessionManager rendering', { sessions, showForm, loading })
 
   const loadSessions = async () => {
+    console.log('Loading sessions...')
     setLoading(true)
+    setError(null)
     try {
       const response = await sessionsApi.list()
+      console.log('Sessions loaded:', response.data)
       setSessions(response.data)
     } catch (error) {
       console.error('Failed to load sessions:', error)
+      setError('Failed to load sessions: ' + (error as Error).message)
     } finally {
       setLoading(false)
     }
@@ -47,6 +54,10 @@ export function SessionManager() {
     } catch (error) {
       console.error('Failed to delete session:', error)
     }
+  }
+
+  if (error) {
+    return <div className="error-message">Error: {error}</div>
   }
 
   if (loading) {

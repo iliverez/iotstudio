@@ -1,7 +1,78 @@
 .main-content {
   display: flex;
   height: 100vh;
-  overflow: hidden;
+}
+
+.sidebar {
+  width: 280px;
+  background-color: #1a1a1a;
+  border-right: 1px solid #333;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.content-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.content-header {
+  min-height: 60px;
+  background-color: #1a1a1a;
+  border-bottom: 1px solid #333;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.content-header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: #fff;
+}
+
+.session-meta {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.status-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 1rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.status-idle {
+  background-color: #666;
+  color: #fff;
+}
+
+.status-running {
+  background-color: #28a745;
+  color: #fff;
+}
+
+.status-paused {
+  background-color: #ffc107;
+  color: #000;
+}
+
+.status-error {
+  background-color: #dc3545;
+  color: #fff;
+}
+
+.content-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2rem;
+  min-height: calc(100vh - 60px);
 }
 
 .content-area {
@@ -11,8 +82,15 @@
   overflow: hidden;
 }
 
+.content-header-spacer {
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .content-header {
-  padding: 1rem 2rem;
+  min-height: 60px;
   background-color: #1a1a1a;
   border-bottom: 1px solid #333;
   display: flex;
