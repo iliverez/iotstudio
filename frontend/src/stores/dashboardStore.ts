@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Session, Device, ConnectionState, DataPoint } from '@/types'
+import type { Session, ConnectionState, DataPoint, Widget } from '@/types'
 
 interface DashboardStore {
   sessions: Session[]
@@ -8,6 +8,7 @@ interface DashboardStore {
   metrics: Record<string, unknown>
   connections: ConnectionState[]
   dataPoints: Map<string, DataPoint[]>
+  widgets: Widget[]
 
   setSessions: (sessions: Session[]) => void
   setActiveSession: (id: string | null) => void
@@ -23,6 +24,11 @@ interface DashboardStore {
 
   addDataPoint: (deviceId: string, point: DataPoint) => void
   getDataPoints: (deviceId: string) => DataPoint[]
+
+  setWidgets: (widgets: Widget[]) => void
+  addWidget: (widget: Widget) => void
+  updateWidget: (id: string, updates: Partial<Widget>) => void
+  removeWidget: (id: string) => void
 }
 
 export const useDashboardStore = create<DashboardStore>((set, get) => ({
@@ -32,6 +38,7 @@ export const useDashboardStore = create<DashboardStore>((set, get) => ({
   metrics: {},
   connections: [],
   dataPoints: new Map(),
+  widgets: [],
 
   setSessions: (sessions) => set({ sessions }),
 
@@ -92,4 +99,21 @@ export const useDashboardStore = create<DashboardStore>((set, get) => ({
     }),
 
   getDataPoints: (deviceId) => get().dataPoints.get(deviceId) || [],
+
+  setWidgets: (widgets) => set({ widgets }),
+
+  addWidget: (widget) =>
+    set((state) => ({
+      widgets: [...state.widgets, widget],
+    })),
+
+  updateWidget: (id, updates) =>
+    set((state) => ({
+      widgets: state.widgets.map((w) => (w.id === id ? { ...w, ...updates } : w)),
+    })),
+
+  removeWidget: (id) =>
+    set((state) => ({
+      widgets: state.widgets.filter((w) => w.id !== id),
+    })),
 }))

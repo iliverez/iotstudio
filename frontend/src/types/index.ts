@@ -80,3 +80,31 @@ export interface ConnectionState {
     lastWrite: string
   }
 }
+
+export type WidgetType = 'linechart' | 'gauge' | 'datagrid' | 'statuscard'
+
+export interface Widget {
+  id: string
+  type: WidgetType
+  title: string
+  config: Record<string, unknown>
+  layout: {
+    x: number
+    y: number
+    w: number
+    h: number
+    minW?: number
+    minH?: number
+    maxW?: number
+    maxH?: number
+  }
+}
+
+export interface Dashboard {
+  id: string
+  sessionId: string
+  name: string
+  widgets: Widget[]
+  createdAt: string
+  updatedAt: string
+}

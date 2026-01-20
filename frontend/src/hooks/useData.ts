@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { useDashboardStore } from '@/stores/dashboardStore'
 import { useWebSocket } from './useWebSocket'
 
