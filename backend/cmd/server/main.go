@@ -6,21 +6,40 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/iotstudio/iotstudio/internal/config"
 	"github.com/iotstudio/iotstudio/internal/server"
+	"github.com/iotstudio/iotstudio/internal/storage/sqlite"
+
 	"github.com/rs/zerolog/log"
 )
 
 func main() {
 	log.Info().Msg("Starting IoTStudio Backend")
 
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to load configuration")
+	}
+
+	log.Info().Str("db_path", cfg.Database.Path).Msg("Database path")
+
+	storage, err := sqlite.NewSQLiteStorage(cfg.Database.Path)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to create storage")
+	}
+	defer storage.Close()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	srv := server.NewServer(server.ServerConfig{})
+	srv := server.NewServer(server.ServerConfig{
+		Addr:    cfg.Server.Addr,
+		Storage: storage,
+	})
 
 	errChan := make(chan error, 1)
 	go func() {
-		if err := srv.Start(ctx, ":8080"); err != nil {
+		if err := srv.Start(ctx, cfg.Server.Addr); err != nil {
 			errChan <- err
 		}
 	}()

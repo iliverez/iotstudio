@@ -6,8 +6,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/iotstudio/iotstudio/internal/connections"
 	"github.com/iotstudio/iotstudio/internal/storage"
+
+	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
 )
 
@@ -15,6 +17,7 @@ type Server struct {
 	httpServer *http.Server
 	upgrader   websocket.Upgrader
 	storage    storage.Storage
+	connMgr    *connections.ConnectionManager
 	logger     zerolog.Logger
 }
 
@@ -28,7 +31,7 @@ func NewServer(config ServerConfig) *Server {
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
 		CheckOrigin: func(r *http.Request) bool {
-			return true // Allow all origins in development
+			return true
 		},
 	}
 
@@ -37,7 +40,10 @@ func NewServer(config ServerConfig) *Server {
 	return &Server{
 		upgrader: upgrader,
 		storage:  config.Storage,
-		logger:   logger,
+		connMgr: connections.NewConnectionManager(connections.Config{
+			Storage: config.Storage,
+		}),
+		logger: logger,
 	}
 }
 
@@ -110,4 +116,12 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+}
+
+func (s *Server) GetConnectionManager() *connections.ConnectionManager {
+	return s.connMgr
+}
+
+func (s *Server) GetStorage() storage.Storage {
+	return s.storage
 }

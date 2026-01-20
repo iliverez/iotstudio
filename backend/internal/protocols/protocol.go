@@ -28,4 +28,4 @@ type ProtocolHandler interface {
 }
 
 // ProtocolFactory is a function that creates a new protocol handler
-type ProtocolFactory func() ProtocolHandler
+type ProtocolFactory func(ctx context.Context, config api.ConnectionConfig) (ProtocolHandler, error)

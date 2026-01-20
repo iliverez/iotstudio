@@ -1,0 +1,14 @@
+server:
+  addr: ":8080"
+  read_timeout: 10s
+  write_timeout: 10s
+  idle_timeout: 60s
+
+database:
+  path: "./data/iotstudio.db"
+
+pool:
+  max_connections: 100
+  max_pool_size: 10
+  max_lifetime: 5m
+  max_idle_time: 1m
