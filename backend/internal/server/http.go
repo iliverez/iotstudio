@@ -2,11 +2,14 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/iotstudio/iotstudio/internal/connections"
+	"github.com/iotstudio/iotstudio/internal/models"
 	"github.com/iotstudio/iotstudio/internal/storage"
 
 	"github.com/gorilla/websocket"
