@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -110,7 +111,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		sessions, err := s.storage.ListSessions(r.Context())
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(`{"error": "${err.Error()}"}`))
+			w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
 			return
 		}
 		json.NewEncoder(w).Encode(sessions)
@@ -128,7 +129,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 
 		if err := s.storage.CreateSession(r.Context(), &session); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(`{"error": "${err.Error()}"}`))
+			w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
 			return
 		}
 		w.WriteHeader(http.StatusCreated)
@@ -147,10 +148,16 @@ func (s *Server) handleDevices(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case "GET":
-		devices, err := s.storage.ListDevices(r.Context())
+		sessionID := r.URL.Query().Get("sessionId")
+		if sessionID == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "sessionId parameter is required"}`))
+			return
+		}
+		devices, err := s.storage.ListDevicesBySession(r.Context(), sessionID)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(`{"error": "${err.Error()}"}`))
+			w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
 			return
 		}
 		json.NewEncoder(w).Encode(devices)
@@ -167,7 +174,7 @@ func (s *Server) handleDevices(w http.ResponseWriter, r *http.Request) {
 
 		if err := s.storage.CreateDevice(r.Context(), &device); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(`{"error": "${err.Error()}"}`))
+			w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
 			return
 		}
 		w.WriteHeader(http.StatusCreated)
@@ -183,7 +190,7 @@ func (s *Server) handleParsers(w http.ResponseWriter, r *http.Request) {
 		parsers, err := s.storage.ListParsers(r.Context())
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(`{"error": "${err.Error()}"}`))
+			w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
 			return
 		}
 		json.NewEncoder(w).Encode(parsers)
@@ -200,7 +207,7 @@ func (s *Server) handleParsers(w http.ResponseWriter, r *http.Request) {
 
 		if err := s.storage.CreateParser(r.Context(), &parser); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(`{"error": "${err.Error()}"}`))
+			w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
 			return
 		}
 		w.WriteHeader(http.StatusCreated)

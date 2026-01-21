@@ -280,7 +280,7 @@ func (s *SQLiteStorage) DeleteSession(ctx context.Context, id string) error {
 func (s *SQLiteStorage) CreateConnection(ctx context.Context, conn *models.Connection) error {
 	query := `
 		INSERT INTO connections (id, session_id, parser_id, type, name, config, framing, delimiter, fixed_size, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := s.db.ExecContext(ctx, query,
@@ -473,7 +473,7 @@ func (s *SQLiteStorage) CreateDevice(ctx context.Context, device *models.Device)
 
 	query := `
 		INSERT INTO devices (id, session_id, connection_id, address, name, description, parser_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := s.db.ExecContext(ctx, query,
@@ -904,16 +904,11 @@ func (s *SQLiteStorage) WriteDataPoints(ctx context.Context, points []models.Dat
 	defer stmt.Close()
 
 	for _, point := range points {
-		//dataJSON, err := json.Marshal(point.Data)
-		if err != nil {
-			return fmt.Errorf("failed to marshal data: %w", err)
-		}
-
 		if _, err := stmt.ExecContext(ctx,
-			//point.SessionID,
+			point.SessionID,
 			point.DeviceID,
 			point.Timestamp,
-			//string(dataJSON),
+			point.Data,
 		); err != nil {
 			return fmt.Errorf("failed to insert data point: %w", err)
 		}
@@ -944,20 +939,15 @@ func (s *SQLiteStorage) QueryData(ctx context.Context, sessionID string, deviceI
 
 	for rows.Next() {
 		var point models.DataPoint
-		var dataJSON string
 
 		if err := rows.Scan(
-			//&point.SessionID,
+			&point.SessionID,
 			&point.DeviceID,
 			&point.Timestamp,
-			&dataJSON,
+			&point.Data,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan data point: %w", err)
 		}
-
-		//if err := json.Unmarshal([]byte(dataJSON), &point.Data); err != nil {
-		//	return nil, fmt.Errorf("failed to unmarshal data: %w", err)
-		//}
 
 		points = append(points, point)
 	}

@@ -40,11 +40,10 @@ type Device struct {
 }
 
 type DataPoint struct {
-	ID        string      `json:"id"`
-	DeviceID  string      `json:"deviceId"`
-	ParserID  string      `json:"parserId"`
-	Timestamp int64       `json:"timestamp"`
-	Value     interface{} `json:"value"`
+	SessionID string `json:"sessionId"`
+	DeviceID  string `json:"deviceId"`
+	Timestamp int64  `json:"timestamp"`
+	Data      string `json:"data"`
 }
 
 type Parser struct {

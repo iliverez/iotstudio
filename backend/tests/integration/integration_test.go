@@ -3,7 +3,9 @@ package integration
 import (
 	"context"
 	"testing"
+	"time"
 
+	"github.com/iotstudio/iotstudio/internal/models"
 	"github.com/iotstudio/iotstudio/internal/storage/sqlite"
 )
 
@@ -16,17 +18,15 @@ func TestSQLiteStorage(t *testing.T) {
 	}
 	defer storage.Close()
 
-	session := struct {
-		ID     string
-		Name   string
-		Status string
-	}{
-		ID:     "test-session-1",
-		Name:   "Test Session",
-		Status: "idle",
+	session := &models.Session{
+		ID:        "test-session-1",
+		Name:      "Test Session",
+		Status:    "idle",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
 
-	if err := storage.CreateSession(ctx, &session); err != nil {
+	if err := storage.CreateSession(ctx, session); err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
 }
