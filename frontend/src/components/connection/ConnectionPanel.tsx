@@ -17,7 +17,7 @@ export function ConnectionPanel() {
     setLoading(true)
     try {
       const response = await connectionsApi.list(activeSession.id)
-      setConnections(response.data)
+      setConnections(response.data || [])
     } catch (error) {
       console.error('Failed to load connections:', error)
     } finally {
@@ -70,7 +70,7 @@ export function ConnectionPanel() {
 
       {loading ? (
         <div className="loading">Loading connections...</div>
-      ) : connections.length === 0 ? (
+      ) : !connections || connections.length === 0 ? (
         <div className="empty-state">
           <p>No connections yet. Add your first connection to get started.</p>
         </div>

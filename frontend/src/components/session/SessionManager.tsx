@@ -19,7 +19,7 @@ export function SessionManager() {
     try {
       const response = await sessionsApi.list()
       console.log('Sessions loaded:', response.data)
-      setSessions(response.data)
+      setSessions(response.data || [])
     } catch (error) {
       console.error('Failed to load sessions:', error)
       setError('Failed to load sessions: ' + (error as Error).message)

@@ -228,6 +228,10 @@ func (s *SQLiteStorage) ListSessions(ctx context.Context) ([]*models.Session, er
 		return nil, fmt.Errorf("error iterating sessions: %w", err)
 	}
 
+	if sessions == nil {
+		sessions = []*models.Session{}
+	}
+
 	return sessions, nil
 }
 
@@ -417,6 +421,10 @@ func (s *SQLiteStorage) ListConnectionsBySession(ctx context.Context, sessionID 
 		return nil, fmt.Errorf("error iterating connections: %w", err)
 	}
 
+	if connections == nil {
+		connections = []*models.Connection{}
+	}
+
 	return connections, nil
 }
 
@@ -599,6 +607,10 @@ func (s *SQLiteStorage) ListDevicesBySession(ctx context.Context, sessionID stri
 		return nil, fmt.Errorf("error iterating devices: %w", err)
 	}
 
+	if devices == nil {
+		devices = []*models.Device{}
+	}
+
 	return devices, nil
 }
 
@@ -654,6 +666,10 @@ func (s *SQLiteStorage) ListDevicesByConnection(ctx context.Context, connectionI
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating devices: %w", err)
+	}
+
+	if devices == nil {
+		devices = []*models.Device{}
 	}
 
 	return devices, nil
@@ -831,6 +847,10 @@ func (s *SQLiteStorage) ListParsers(ctx context.Context) ([]*models.Parser, erro
 		return nil, fmt.Errorf("error iterating parsers: %w", err)
 	}
 
+	if parsers == nil {
+		parsers = []*models.Parser{}
+	}
+
 	return parsers, nil
 }
 
@@ -954,6 +974,10 @@ func (s *SQLiteStorage) QueryData(ctx context.Context, sessionID string, deviceI
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating data points: %w", err)
+	}
+
+	if points == nil {
+		points = []models.DataPoint{}
 	}
 
 	return points, nil

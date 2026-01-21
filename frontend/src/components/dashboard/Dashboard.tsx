@@ -11,7 +11,8 @@ interface DashboardProps {
 }
 
 export function Dashboard({ widgets = [], onLayoutChange }: DashboardProps) {
-  const layouts = widgets.map((w) => ({ i: w.id, ...w.layout }))
+  const safeWidgets = widgets || []
+  const layouts = safeWidgets.map((w) => ({ i: w.id, ...w.layout }))
 
   const renderWidget = (widget: Widget) => {
     const commonProps = {
@@ -27,7 +28,7 @@ export function Dashboard({ widgets = [], onLayoutChange }: DashboardProps) {
     }
   }
 
-  if (widgets.length === 0) {
+  if (safeWidgets.length === 0) {
     return (
       <div className="dashboard-empty">
         <div className="dashboard-empty-icon">📊</div>
@@ -57,7 +58,7 @@ export function Dashboard({ widgets = [], onLayoutChange }: DashboardProps) {
           }
         }}
       >
-        {widgets.map((widget) => (
+        {safeWidgets.map((widget) => (
           <div key={widget.id}>
             {renderWidget(widget)}
           </div>

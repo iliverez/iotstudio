@@ -14,7 +14,7 @@ export function Sidebar() {
         <h2>Sessions</h2>
       </div>
       <div className="sidebar-content">
-        {sessions.length === 0 ? (
+        {!sessions || sessions.length === 0 ? (
           <p className="empty-state">No sessions yet</p>
         ) : (
           <ul className="session-list">
