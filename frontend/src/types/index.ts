@@ -9,9 +9,13 @@ export interface Session {
 export interface Connection {
   id: string
   sessionId: string
+  parserId: string
   type: 'modbus_tcp' | 'modbus_rtu'
   name: string
   config: string
+  framing: string
+  delimiter: string | null
+  fixedSize: number | null
   status: 'disconnected' | 'connecting' | 'connected' | 'error'
   createdAt: string
   updatedAt: string
@@ -21,7 +25,7 @@ export interface Device {
   id: string
   sessionId: string
   connectionId: string
-  address: number
+  address: string
   name: string
   description: string
   parserId: string
@@ -32,11 +36,24 @@ export interface Device {
 export interface Parser {
   id: string
   name: string
-  type: 'visual' | 'javascript'
-  visualRules: string
-  javascript: string
+  type: 'visual' | 'javascript' | 'builtin'
+  fields: ParserField[]
+  builtinType: string | null
   createdAt: string
   updatedAt: string
+}
+
+export interface ParserField {
+  name: string
+  deviceId: string
+  dataType: string
+  offset: number
+  bitOffset: number
+  bitWidth: number
+  endianness: string
+  scale: number
+  valueOffset: number
+  arrayLength: number
 }
 
 export interface VisualRule {

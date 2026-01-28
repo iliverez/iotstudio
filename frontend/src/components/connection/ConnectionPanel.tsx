@@ -16,7 +16,7 @@ export function ConnectionPanel() {
 
     setLoading(true)
     try {
-      const response = await connectionsApi.list(activeSession.id)
+      const response = await connectionsApi.listBySession(activeSession.id)
       setConnections(response.data || [])
     } catch (error) {
       console.error('Failed to load connections:', error)
@@ -29,17 +29,9 @@ export function ConnectionPanel() {
     loadConnections()
   }, [activeSession?.id])
 
-  const handleCreate = async (connection: Partial<Connection>) => {
-    if (!activeSession) return
-
-    try {
-      const response = await connectionsApi.create(activeSession.id, connection)
-      setConnections([...connections, response.data])
-      setShowForm(false)
-    } catch (error) {
-      console.error('Failed to create connection:', error)
-      throw error
-    }
+  const handleCreate = async () => {
+    setShowForm(false)
+    loadConnections()
   }
 
   const handleDelete = async (id: string, name: string) => {
@@ -104,6 +96,7 @@ export function ConnectionPanel() {
 
       {showForm && (
         <ConnectionForm
+          sessionId={activeSession?.id || ''}
           onSave={handleCreate}
           onClose={() => setShowForm(false)}
         />

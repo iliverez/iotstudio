@@ -20,7 +20,9 @@ interface DashboardStore {
   updateMetricTransient: (key: string, value: unknown) => void
 
   setConnections: (connections: ConnectionState[]) => void
+  addConnection: (connection: ConnectionState) => void
   updateConnection: (connectionId: string, updates: Partial<ConnectionState>) => void
+  removeConnection: (id: string) => void
 
   addDataPoint: (deviceId: string, point: DataPoint) => void
   getDataPoints: (deviceId: string) => DataPoint[]
@@ -81,11 +83,21 @@ export const useDashboardStore = create<DashboardStore>((set, get) => ({
 
   setConnections: (connections) => set({ connections }),
 
+  addConnection: (connection) =>
+    set((state) => ({
+      connections: [...state.connections, connection],
+    })),
+
   updateConnection: (connectionId, updates) =>
     set((state) => ({
       connections: state.connections.map((c) =>
         c.connectionId === connectionId ? { ...c, ...updates } : c
       ),
+    })),
+
+  removeConnection: (id) =>
+    set((state) => ({
+      connections: state.connections.filter((c) => c.connectionId !== id),
     })),
 
   addDataPoint: (deviceId, point) =>

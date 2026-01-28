@@ -1,24 +1,26 @@
 import { useState } from 'react'
-import type { Connection } from '@/types'
+import { connectionsApi } from '@/api/client'
 import { ModbusTCPForm } from './ModbusTCPForm'
 import { ModbusRTUForm } from './ModbusRTUForm'
 import './ConnectionForm.css'
 
 interface ConnectionFormProps {
-  onSave: (connection: Partial<Connection>) => Promise<void>
+  sessionId: string
+  onSave: () => void
   onClose: () => void
 }
 
 type ConnectionType = 'modbus_tcp' | 'modbus_rtu'
 
-export function ConnectionForm({ onSave, onClose }: ConnectionFormProps) {
+export function ConnectionForm({ sessionId, onSave, onClose }: ConnectionFormProps) {
   const [connectionType, setConnectionType] = useState<ConnectionType>('modbus_tcp')
   const [name, setName] = useState('')
   const [config, setConfig] = useState<Record<string, unknown>>({})
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
     setError('')
 
     if (!name.trim()) {
@@ -28,11 +30,13 @@ export function ConnectionForm({ onSave, onClose }: ConnectionFormProps) {
 
     setSubmitting(true)
     try {
-      await onSave({
+      const response = await connectionsApi.create(sessionId, {
         name: name.trim(),
         type: connectionType,
         config: JSON.stringify(config),
       })
+      console.log('Connection created:', response.data)
+      onSave()
     } catch (err) {
       setError('Failed to create connection')
       setSubmitting(false)
@@ -53,7 +57,7 @@ export function ConnectionForm({ onSave, onClose }: ConnectionFormProps) {
           </button>
         </div>
 
-        <div className="modal-body">
+        <form onSubmit={handleSubmit} className="modal-body">
           <div className="form-group">
             <label htmlFor="connection-name">Connection Name</label>
             <input
@@ -108,15 +112,14 @@ export function ConnectionForm({ onSave, onClose }: ConnectionFormProps) {
               Cancel
             </button>
             <button
-              type="button"
+              type="submit"
               className="btn btn-primary"
-              onClick={handleSubmit}
               disabled={submitting}
             >
               {submitting ? 'Creating...' : 'Create'}
             </button>
           </div>
-        </div>
+        </form>
       </div>
     </div>
   )

@@ -17,7 +17,10 @@ export const sessionsApi = {
 }
 
 export const connectionsApi = {
-  list: (sessionId: string) =>
+  get: (id: string) => api.get<Connection>(`/connections/${id}`),
+  update: (id: string, data: Partial<Connection>) =>
+    api.put<Connection>(`/connections/${id}`, data),
+  listBySession: (sessionId: string) =>
     api.get<Connection[]>(`/sessions/${sessionId}/connections`),
   create: (sessionId: string, data: Partial<Connection>) =>
     api.post<Connection>(`/sessions/${sessionId}/connections`, data),
@@ -25,7 +28,11 @@ export const connectionsApi = {
 }
 
 export const devicesApi = {
-  list: (sessionId: string) => api.get<Device[]>(`/sessions/${sessionId}/devices`),
+  get: (id: string) => api.get<Device>(`/devices/${id}`),
+  update: (id: string, data: Partial<Device>) =>
+    api.put<Device>(`/devices/${id}`, data),
+  listBySession: (sessionId: string) =>
+    api.get<Device[]>(`/sessions/${sessionId}/devices`),
   listByConnection: (connectionId: string) =>
     api.get<Device[]>(`/connections/${connectionId}/devices`),
   create: (sessionId: string, data: Partial<Device>) =>
@@ -36,9 +43,9 @@ export const devicesApi = {
 export const parsersApi = {
   list: () => api.get<Parser[]>('/parsers'),
   get: (id: string) => api.get<Parser>(`/parsers/${id}`),
-  create: (data: Partial<Parser>) => api.post<Parser>('/parsers', data),
   update: (id: string, data: Partial<Parser>) => api.put<Parser>(`/parsers/${id}`, data),
   delete: (id: string) => api.delete(`/parsers/${id}`),
+  create: (data: Partial<Parser>) => api.post<Parser>('/parsers', data),
 }
 
 export default api

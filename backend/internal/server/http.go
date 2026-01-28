@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -93,6 +94,18 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 	}
 }
 
+func extractIDFromPath(path, prefix string) string {
+	if len(path) <= len(prefix) {
+		return ""
+	}
+	id := path[len(prefix):]
+	slashIdx := strings.Index(id, "/")
+	if slashIdx != -1 {
+		id = id[:slashIdx]
+	}
+	return id
+}
+
 func (s *Server) healthCheck(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
@@ -106,15 +119,27 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	id := extractIDFromPath(r.URL.Path, "/api/sessions/")
+
 	switch r.Method {
 	case "GET":
-		sessions, err := s.storage.ListSessions(r.Context())
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
-			return
+		if id != "" {
+			session, err := s.storage.GetSession(r.Context(), id)
+			if err != nil {
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(`{"error": "Session not found"}`))
+				return
+			}
+			json.NewEncoder(w).Encode(session)
+		} else {
+			sessions, err := s.storage.ListSessions(r.Context())
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+				return
+			}
+			json.NewEncoder(w).Encode(sessions)
 		}
-		json.NewEncoder(w).Encode(sessions)
 
 	case "POST":
 		var session models.Session
@@ -134,35 +159,185 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(session)
+
+	case "PUT":
+		if id == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "Session ID is required"}`))
+			return
+		}
+
+		var session models.Session
+		if err := json.NewDecoder(r.Body).Decode(&session); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "Invalid request body"}`))
+			return
+		}
+		session.ID = id
+
+		if err := s.storage.UpdateSession(r.Context(), &session); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+			return
+		}
+		json.NewEncoder(w).Encode(session)
+
+	case "DELETE":
+		if id == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "Session ID is required"}`))
+			return
+		}
+
+		if err := s.storage.DeleteSession(r.Context(), id); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
 func (s *Server) handleConnections(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"connections": []}`))
+
+	id := extractIDFromPath(r.URL.Path, "/api/connections/")
+	sessionID := extractIDFromPath(r.URL.Path, "/api/sessions/")
+
+	switch r.Method {
+	case "GET":
+		if id != "" {
+			connection, err := s.storage.GetConnection(r.Context(), id)
+			if err != nil {
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(`{"error": "Connection not found"}`))
+				return
+			}
+			json.NewEncoder(w).Encode(connection)
+		} else if sessionID != "" {
+			connections, err := s.storage.ListConnectionsBySession(r.Context(), sessionID)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+				return
+			}
+			json.NewEncoder(w).Encode(connections)
+		} else {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "Session ID or Connection ID required"}`))
+			return
+		}
+
+	case "POST":
+		if sessionID == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "Session ID is required"}`))
+			return
+		}
+
+		var connection models.Connection
+		if err := json.NewDecoder(r.Body).Decode(&connection); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "Invalid request body"}`))
+			return
+		}
+		connection.ID = uuid.New().String()
+		connection.SessionID = sessionID
+		connection.CreatedAt = time.Now()
+		connection.Status = "disconnected"
+
+		if err := s.storage.CreateConnection(r.Context(), &connection); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(connection)
+
+	case "PUT":
+		if id == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "Connection ID is required"}`))
+			return
+		}
+
+		var connection models.Connection
+		if err := json.NewDecoder(r.Body).Decode(&connection); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "Invalid request body"}`))
+			return
+		}
+		connection.ID = id
+
+		if err := s.storage.UpdateConnection(r.Context(), &connection); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+			return
+		}
+		json.NewEncoder(w).Encode(connection)
+
+	case "DELETE":
+		if id == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "Connection ID is required"}`))
+			return
+		}
+
+		if err := s.storage.DeleteConnection(r.Context(), id); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 func (s *Server) handleDevices(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	id := extractIDFromPath(r.URL.Path, "/api/devices/")
+	sessionID := extractIDFromPath(r.URL.Path, "/api/sessions/")
+	connectionID := extractIDFromPath(r.URL.Path, "/api/connections/")
+
 	switch r.Method {
 	case "GET":
-		sessionID := r.URL.Query().Get("sessionId")
-		if sessionID == "" {
+		if id != "" {
+			device, err := s.storage.GetDevice(r.Context(), id)
+			if err != nil {
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(`{"error": "Device not found"}`))
+				return
+			}
+			json.NewEncoder(w).Encode(device)
+		} else if connectionID != "" {
+			devices, err := s.storage.ListDevicesByConnection(r.Context(), connectionID)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+				return
+			}
+			json.NewEncoder(w).Encode(devices)
+		} else if sessionID != "" {
+			devices, err := s.storage.ListDevicesBySession(r.Context(), sessionID)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+				return
+			}
+			json.NewEncoder(w).Encode(devices)
+		} else {
 			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte(`{"error": "sessionId parameter is required"}`))
+			w.Write([]byte(`{"error": "Session ID, Connection ID, or Device ID required"}`))
 			return
 		}
-		devices, err := s.storage.ListDevicesBySession(r.Context(), sessionID)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
-			return
-		}
-		json.NewEncoder(w).Encode(devices)
 
 	case "POST":
+		if sessionID == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "Session ID is required"}`))
+			return
+		}
+
 		var device models.Device
 		if err := json.NewDecoder(r.Body).Decode(&device); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
@@ -170,6 +345,7 @@ func (s *Server) handleDevices(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		device.ID = uuid.New().String()
+		device.SessionID = sessionID
 		device.CreatedAt = time.Now()
 
 		if err := s.storage.CreateDevice(r.Context(), &device); err != nil {
@@ -179,21 +355,69 @@ func (s *Server) handleDevices(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(device)
+
+	case "PUT":
+		if id == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "Device ID is required"}`))
+			return
+		}
+
+		var device models.Device
+		if err := json.NewDecoder(r.Body).Decode(&device); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "Invalid request body"}`))
+			return
+		}
+		device.ID = id
+
+		if err := s.storage.UpdateDevice(r.Context(), &device); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+			return
+		}
+		json.NewEncoder(w).Encode(device)
+
+	case "DELETE":
+		if id == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "Device ID is required"}`))
+			return
+		}
+
+		if err := s.storage.DeleteDevice(r.Context(), id); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
 func (s *Server) handleParsers(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	id := extractIDFromPath(r.URL.Path, "/api/parsers/")
+
 	switch r.Method {
 	case "GET":
-		parsers, err := s.storage.ListParsers(r.Context())
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
-			return
+		if id != "" {
+			parser, err := s.storage.GetParser(r.Context(), id)
+			if err != nil {
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(`{"error": "Parser not found"}`))
+				return
+			}
+			json.NewEncoder(w).Encode(parser)
+		} else {
+			parsers, err := s.storage.ListParsers(r.Context())
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+				return
+			}
+			json.NewEncoder(w).Encode(parsers)
 		}
-		json.NewEncoder(w).Encode(parsers)
 
 	case "POST":
 		var parser models.Parser
@@ -212,6 +436,42 @@ func (s *Server) handleParsers(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(parser)
+
+	case "PUT":
+		if id == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "Parser ID is required"}`))
+			return
+		}
+
+		var parser models.Parser
+		if err := json.NewDecoder(r.Body).Decode(&parser); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "Invalid request body"}`))
+			return
+		}
+		parser.ID = id
+
+		if err := s.storage.UpdateParser(r.Context(), &parser); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+			return
+		}
+		json.NewEncoder(w).Encode(parser)
+
+	case "DELETE":
+		if id == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "Parser ID is required"}`))
+			return
+		}
+
+		if err := s.storage.DeleteParser(r.Context(), id); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 

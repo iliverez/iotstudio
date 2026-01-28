@@ -4,7 +4,11 @@ import { useDashboardStore } from '@/stores/dashboardStore'
 import { SessionForm } from './SessionForm'
 import './SessionManager.css'
 
-export function SessionManager() {
+interface SessionManagerProps {
+  onSessionSelect: (sessionId: string) => void
+}
+
+export function SessionManager({ onSessionSelect }: SessionManagerProps) {
   const { sessions, setSessions } = useDashboardStore()
   const [showForm, setShowForm] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -83,13 +87,21 @@ export function SessionManager() {
             <div key={session.id} className="session-card">
               <div className="session-card-header">
                 <h3>{session.name}</h3>
-                <button
-                  className="btn-icon btn-danger"
-                  onClick={() => handleDelete(session.id, session.name)}
-                  title="Delete session"
-                >
-                  ×
-                </button>
+                <div className="session-actions">
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => onSessionSelect(session.id)}
+                  >
+                    Manage
+                  </button>
+                  <button
+                    className="btn-icon btn-danger"
+                    onClick={() => handleDelete(session.id, session.name)}
+                    title="Delete session"
+                  >
+                    ×
+                  </button>
+                </div>
               </div>
               <div className="session-card-body">
                 <div className="session-info">

@@ -1,61 +1,43 @@
 import { useState } from 'react'
 import { MainContent } from './components/layout/MainContent'
 import { SessionManager } from './components/session/SessionManager'
-import { ConnectionPanel } from './components/connection/ConnectionPanel'
-import { Dashboard } from './components/dashboard/Dashboard'
-import type { Widget } from './types'
+import { SessionDetail } from './components/session/SessionDetail'
 import './index.css'
 
-export default function App() {
-  const [currentView, setCurrentView] = useState<'sessions' | 'connections' | 'dashboard'>('sessions')
+type View = 'sessions' | 'session-detail'
 
-  const sampleWidgets: Widget[] = [
-    {
-      id: 'status-1',
-      type: 'statuscard',
-      title: 'Connection Status',
-      config: { status: 'connected', label: 'Status' },
-      layout: { x: 0, y: 0, w: 4, h: 3 },
-    },
-    {
-      id: 'gauge-1',
-      type: 'gauge',
-      title: 'Temperature',
-      config: { value: 23.5, min: 0, max: 100, unit: '°C' },
-      layout: { x: 4, y: 0, w: 4, h: 5 },
-    },
-  ]
+export default function App() {
+  const [currentView, setCurrentView] = useState<View>('sessions')
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+
+  const navigateToSession = (sessionId: string) => {
+    setSelectedSessionId(sessionId)
+    setCurrentView('session-detail')
+  }
+
+  const navigateBack = () => {
+    setSelectedSessionId(null)
+    setCurrentView('sessions')
+  }
 
   return (
     <div className="app">
       <header>
         <h1>IoTStudio</h1>
-        <nav>
-          <button
-            className={`nav-btn ${currentView === 'sessions' ? 'active' : ''}`}
-            onClick={() => setCurrentView('sessions')}
-          >
-            Sessions
-          </button>
-          <button
-            className={`nav-btn ${currentView === 'connections' ? 'active' : ''}`}
-            onClick={() => setCurrentView('connections')}
-          >
-            Connections
-          </button>
-          <button
-            className={`nav-btn ${currentView === 'dashboard' ? 'active' : ''}`}
-            onClick={() => setCurrentView('dashboard')}
-          >
-            Dashboard
-          </button>
-        </nav>
+        {selectedSessionId && (
+          <nav>
+            <button className="nav-btn" onClick={navigateBack}>
+              ← Back to Sessions
+            </button>
+          </nav>
+        )}
       </header>
 
       <MainContent>
-        {currentView === 'sessions' && <SessionManager />}
-        {currentView === 'connections' && <ConnectionPanel />}
-        {currentView === 'dashboard' && <Dashboard widgets={sampleWidgets} />}
+        {currentView === 'sessions' && <SessionManager onSessionSelect={navigateToSession} />}
+        {currentView === 'session-detail' && selectedSessionId && (
+          <SessionDetail sessionId={selectedSessionId} />
+        )}
       </MainContent>
     </div>
   )
