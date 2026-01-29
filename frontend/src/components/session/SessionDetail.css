@@ -2,6 +2,37 @@
   padding: 1rem 2rem;
 }
 
+.error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+  border-radius: 0.5rem;
+  border-left: 4px solid;
+}
+
+.error-banner.error-system {
+  background-color: #721c24;
+  border-left-color: #f5c6cb;
+}
+
+.error-banner.error-form {
+  background-color: #856404;
+  border-left-color: #ffeeba;
+}
+
+.error-banner span {
+  color: #fff;
+  flex: 1;
+}
+
+.error-banner .btn-icon {
+  color: #fff;
+  font-size: 1.25rem;
+}
+
 .session-tabs {
   display: flex;
   gap: 0.5rem;
@@ -42,4 +73,28 @@
   justify-content: center;
   padding: 3rem;
   color: #888;
+}
+
+.loading-timeout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  gap: 1rem;
+}
+
+.timeout-icon {
+  font-size: 4rem;
+  margin-bottom: 0.5rem;
+}
+
+.timeout-message {
+  text-align: center;
+  color: #888;
+}
+
+.timeout-message p {
+  margin: 0.5rem 0;
+  font-size: 0.875rem;
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { connectionsApi, devicesApi } from '@/api/client'
 import { ConnectionForm } from './ConnectionForm'
 import { DeviceForm } from '../device/DeviceForm'
@@ -16,13 +16,16 @@ export function ConnectionsTab({ sessionId, connections, onUpdate }: Connections
   const [showDeviceForm, setShowDeviceForm] = useState(false)
   const [expandedConnections, setExpandedConnections] = useState<Set<string>>(new Set())
   const [connectionsDevices, setConnectionsDevices] = useState<Map<string, Device[]>>(new Map())
+  const [error, setError] = useState<string | null>(null)
 
   const loadDevicesForConnection = async (connectionId: string) => {
     try {
       const response = await devicesApi.listByConnection(connectionId)
       setConnectionsDevices((prev) => new Map(prev).set(connectionId, response.data || []))
-    } catch (error) {
-      console.error('Failed to load devices for connection:', error)
+    } catch (err: any) {
+      console.error('Failed to load devices for connection:', err)
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to load devices'
+      setError(errorMessage)
     }
   }
 
@@ -40,9 +43,15 @@ export function ConnectionsTab({ sessionId, connections, onUpdate }: Connections
   }
 
   const handleCreateDevice = async (deviceData: Partial<Device>) => {
-    await devicesApi.create(sessionId, deviceData)
-    setShowDeviceForm(false)
-    await onUpdate()
+    try {
+      await devicesApi.create(sessionId, deviceData)
+      setShowDeviceForm(false)
+      await onUpdate()
+    } catch (err: any) {
+      console.error('Failed to create device:', err)
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to create device'
+      setError(errorMessage)
+    }
   }
 
   const handleDeleteConnection = async (id: string, name: string) => {
@@ -53,8 +62,10 @@ export function ConnectionsTab({ sessionId, connections, onUpdate }: Connections
     try {
       await connectionsApi.delete(id)
       onUpdate()
-    } catch (error) {
-      console.error('Failed to delete connection:', error)
+    } catch (err: any) {
+      console.error('Failed to delete connection:', err)
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to delete connection'
+      setError(errorMessage)
     }
   }
 
@@ -66,13 +77,33 @@ export function ConnectionsTab({ sessionId, connections, onUpdate }: Connections
     try {
       await devicesApi.delete(id)
       onUpdate()
-    } catch (error) {
-      console.error('Failed to delete device:', error)
+    } catch (err: any) {
+      console.error('Failed to delete device:', err)
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to delete device'
+      setError(errorMessage)
     }
   }
 
+  const connectionsList = connections || []
+  const hasConnections = connectionsList.length > 0
+
+  useEffect(() => {
+    if (!hasConnections && connectionsList.length === 0) {
+      setShowConnectionForm(true)
+    }
+  }, [hasConnections, connectionsList.length])
+
   return (
     <div className="connections-tab">
+      {error && (
+        <div className="inline-error">
+          <span>{error}</span>
+          <button className="btn-icon" onClick={() => setError(null)}>
+            ×
+          </button>
+        </div>
+      )}
+
       <div className="tab-header">
         <h3>Connections</h3>
         <button className="btn btn-primary" onClick={() => setShowConnectionForm(true)}>
@@ -80,13 +111,19 @@ export function ConnectionsTab({ sessionId, connections, onUpdate }: Connections
         </button>
       </div>
 
-      {!connections || connections.length === 0 ? (
+      {!hasConnections ? (
         <div className="empty-state">
           <p>No connections yet. Add your first connection to get started.</p>
+          <button
+            className="btn btn-primary"
+            onClick={() => setShowConnectionForm(true)}
+          >
+            + Add Connection
+          </button>
         </div>
       ) : (
         <div className="connection-list">
-          {connections.map((connection) => {
+          {connectionsList.map((connection) => {
             const devices = connectionsDevices.get(connection.id) || []
             const isExpanded = expandedConnections.has(connection.id)
 
@@ -123,7 +160,7 @@ export function ConnectionsTab({ sessionId, connections, onUpdate }: Connections
                       </button>
                     </div>
 
-                    {!devices || devices.length === 0 ? (
+                    {devices.length === 0 ? (
                       <div className="empty-state">
                         <p>No devices yet for this connection.</p>
                       </div>
@@ -172,15 +209,21 @@ export function ConnectionsTab({ sessionId, connections, onUpdate }: Connections
         <ConnectionForm
           sessionId={sessionId}
           onSave={onUpdate}
-          onClose={() => setShowConnectionForm(false)}
+          onClose={() => {
+            setShowConnectionForm(false)
+            setError(null)
+          }}
         />
       )}
 
       {showDeviceForm && (
         <DeviceForm
-          connections={connections}
+          connections={connectionsList}
           onSave={handleCreateDevice}
-          onClose={() => setShowDeviceForm(false)}
+          onClose={() => {
+            setShowDeviceForm(false)
+            setError(null)
+          }}
         />
       )}
     </div>

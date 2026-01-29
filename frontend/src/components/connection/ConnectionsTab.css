@@ -2,6 +2,28 @@
   padding: 1rem 0;
 }
 
+.inline-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1.5rem;
+  background-color: #856404;
+  border-radius: 0.375rem;
+  border-left: 4px solid #ffeeba;
+}
+
+.inline-error span {
+  color: #fff;
+  font-size: 0.875rem;
+}
+
+.inline-error .btn-icon {
+  color: #fff;
+  font-size: 1.25rem;
+}
+
 .tab-header {
   display: flex;
   align-items: center;
