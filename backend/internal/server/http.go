@@ -55,7 +55,10 @@ func NewServer(config ServerConfig) *Server {
 func (s *Server) Start(ctx context.Context, addr string) error {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/health", s.healthCheck)
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
 	mux.HandleFunc("/ws", s.handleWebSocket)
 	mux.HandleFunc("/api/sessions", s.handleSessions)
 	mux.HandleFunc("/api/sessions/", s.handleSessions)
@@ -94,6 +97,11 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 	}
 }
 
+func (s *Server) healthCheck(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
 func extractIDFromPath(path, prefix string) string {
 	if len(path) <= len(prefix) {
 		return ""
@@ -104,16 +112,6 @@ func extractIDFromPath(path, prefix string) string {
 		id = id[:slashIdx]
 	}
 	return id
-}
-
-func (s *Server) healthCheck(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
-}
-
-func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("API endpoint"))
 }
 
 func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
