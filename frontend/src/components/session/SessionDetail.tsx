@@ -1,22 +1,24 @@
 import { useState, useEffect } from 'react'
-import { connectionsApi, devicesApi } from '@/api/client'
-import type { Connection, Device } from '@/types'
+import { connectionsApi, devicesApi, parsersApi } from '@/api/client'
+import type { Connection, Device, Parser } from '@/types'
 import { ConnectionsTab } from '../connection/ConnectionsTab'
 import { DevicesTab } from '../device/DevicesTab'
 import { DashboardTab } from '../dashboard/DashboardTab'
+import { ParsersTab } from '../parser/ParsersTab'
 import './SessionDetail.css'
 
 interface SessionDetailProps {
   sessionId: string
 }
 
-type Tab = 'connections' | 'devices' | 'dashboard'
+type Tab = 'connections' | 'devices' | 'parsers' | 'dashboard'
 type ErrorType = 'system' | 'form'
 
 export function SessionDetail({ sessionId }: SessionDetailProps) {
   const [activeTab, setActiveTab] = useState<Tab>('connections')
   const [connections, setConnections] = useState<Connection[]>([])
   const [devices, setDevices] = useState<Device[]>([])
+  const [parsers, setParsers] = useState<Parser[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<{ message: string; type: ErrorType } | null>(null)
   const [loadingTimeout, setLoadingTimeout] = useState(false)
@@ -38,12 +40,14 @@ export function SessionDetail({ sessionId }: SessionDetailProps) {
     }, 20000)
 
     try {
-      const [connsRes, devsRes] = await Promise.all([
+      const [connsRes, devsRes, parsersRes] = await Promise.all([
         connectionsApi.listBySession(sessionId),
         devicesApi.listBySession(sessionId),
+        parsersApi.list(),
       ])
       setConnections(connsRes.data || [])
       setDevices(devsRes.data || [])
+      setParsers(parsersRes.data || [])
     } catch (error: any) {
       console.error('Failed to load session data:', error)
       const isSystemError = error.response?.status >= 500 || error.response?.status === 0
@@ -64,6 +68,10 @@ export function SessionDetail({ sessionId }: SessionDetailProps) {
   }
 
   const handleDeviceUpdate = () => {
+    loadData()
+  }
+
+  const handleParserUpdate = () => {
     loadData()
   }
 
@@ -101,6 +109,12 @@ export function SessionDetail({ sessionId }: SessionDetailProps) {
           Devices ({devices.length})
         </button>
         <button
+          className={`tab-button ${activeTab === 'parsers' ? 'active' : ''}`}
+          onClick={() => setActiveTab('parsers')}
+        >
+          Parsers ({parsers.length})
+        </button>
+        <button
           className={`tab-button ${activeTab === 'dashboard' ? 'active' : ''}`}
           onClick={() => setActiveTab('dashboard')}
         >
@@ -134,6 +148,9 @@ export function SessionDetail({ sessionId }: SessionDetailProps) {
               connections={connections}
               onUpdate={handleDeviceUpdate}
             />
+          )}
+          {activeTab === 'parsers' && (
+            <ParsersTab onUpdate={handleParserUpdate} />
           )}
           {activeTab === 'dashboard' && (
             <DashboardTab sessionId={sessionId} />

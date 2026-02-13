@@ -60,12 +60,12 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 		w.Write([]byte("OK"))
 	})
 	mux.HandleFunc("/ws", s.handleWebSocket)
+	mux.HandleFunc("/api/sessions/", s.handleSessionConnections)
 	mux.HandleFunc("/api/sessions", s.handleSessions)
-	mux.HandleFunc("/api/sessions/", s.handleSessions)
-	mux.HandleFunc("/api/connections", s.handleConnections)
 	mux.HandleFunc("/api/connections/", s.handleConnections)
-	mux.HandleFunc("/api/devices", s.handleDevices)
+	mux.HandleFunc("/api/connections", s.handleConnections)
 	mux.HandleFunc("/api/devices/", s.handleDevices)
+	mux.HandleFunc("/api/devices", s.handleDevices)
 	mux.HandleFunc("/api/parsers", s.handleParsers)
 	mux.HandleFunc("/api/parsers/", s.handleParsers)
 
@@ -196,11 +196,160 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handleSessionConnections(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	sessionID := extractIDFromPath(r.URL.Path, "/api/sessions/")
+	if sessionID == "" {
+		s.handleSessions(w, r)
+		return
+	}
+
+	pathSuffix := strings.TrimPrefix(r.URL.Path, "/api/sessions/"+sessionID)
+
+	if pathSuffix == "" || pathSuffix == "/" {
+		s.handleSessions(w, r)
+		return
+	}
+
+	if pathSuffix == "/connections" {
+		switch r.Method {
+		case "GET":
+			connections, err := s.storage.ListConnectionsBySession(r.Context(), sessionID)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+				return
+			}
+			json.NewEncoder(w).Encode(connections)
+
+		case "POST":
+			var connection models.Connection
+			if err := json.NewDecoder(r.Body).Decode(&connection); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte(`{"error": "Invalid request body"}`))
+				return
+			}
+			connection.ID = uuid.New().String()
+			connection.SessionID = sessionID
+			connection.CreatedAt = time.Now()
+			connection.UpdatedAt = time.Now()
+			connection.Status = "disconnected"
+
+			if err := s.storage.CreateConnection(r.Context(), &connection); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(connection)
+
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+		return
+	}
+
+	if strings.HasPrefix(pathSuffix, "/connections/") {
+		restOfPath := strings.TrimPrefix(pathSuffix, "/connections/")
+		if strings.HasSuffix(restOfPath, "/devices") {
+			connectionID := strings.TrimSuffix(restOfPath, "/devices")
+			r.URL.Path = "/api/connections/" + connectionID + "/devices"
+			s.handleDevices(w, r)
+			return
+		}
+	}
+
+	if pathSuffix == "/devices" {
+		s.handleDevices(w, r)
+		return
+	}
+
+	w.WriteHeader(http.StatusNotFound)
+	w.Write([]byte(`{"error": "Not found"}`))
+}
+
 func (s *Server) handleConnections(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	id := extractIDFromPath(r.URL.Path, "/api/connections/")
 	sessionID := extractIDFromPath(r.URL.Path, "/api/sessions/")
+
+	if id != "" && strings.HasSuffix(r.URL.Path, "/devices") {
+		connectionID := strings.TrimSuffix(id, "/devices")
+		r.URL.Path = "/api/connections/" + connectionID + "/devices"
+		s.handleDevices(w, r)
+		return
+	}
+
+	// Handle connect/disconnect actions
+	if r.Method == "POST" && id != "" {
+		pathSuffix := strings.TrimPrefix(r.URL.Path, "/api/connections/"+id)
+
+		if pathSuffix == "/connect" {
+			// Load connection from storage
+			conn, err := s.storage.GetConnection(r.Context(), id)
+			if err != nil {
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(`{"error": "Connection not found"}`))
+				return
+			}
+
+			// Update status to connecting
+			conn.Status = "connecting"
+			if err := s.storage.UpdateConnection(r.Context(), conn); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+				return
+			}
+
+			// Try to connect
+			if err := s.connMgr.StartConnection(r.Context(), id); err != nil {
+				conn.Status = "error"
+				s.storage.UpdateConnection(r.Context(), conn)
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(fmt.Sprintf(`{"error": "Failed to connect: %s"}`, err.Error())))
+				return
+			}
+
+			conn.Status = "connected"
+			if err := s.storage.UpdateConnection(r.Context(), conn); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+				return
+			}
+
+			json.NewEncoder(w).Encode(conn)
+			return
+		}
+
+		if pathSuffix == "/disconnect" {
+			// Load connection from storage
+			conn, err := s.storage.GetConnection(r.Context(), id)
+			if err != nil {
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(`{"error": "Connection not found"}`))
+				return
+			}
+
+			// Disconnect
+			if err := s.connMgr.StopConnection(r.Context(), id); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(fmt.Sprintf(`{"error": "Failed to disconnect: %s"}`, err.Error())))
+				return
+			}
+
+			conn.Status = "disconnected"
+			if err := s.storage.UpdateConnection(r.Context(), conn); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+				return
+			}
+
+			json.NewEncoder(w).Encode(conn)
+			return
+		}
+	}
 
 	switch r.Method {
 	case "GET":
@@ -242,6 +391,7 @@ func (s *Server) handleConnections(w http.ResponseWriter, r *http.Request) {
 		connection.ID = uuid.New().String()
 		connection.SessionID = sessionID
 		connection.CreatedAt = time.Now()
+		connection.UpdatedAt = time.Now()
 		connection.Status = "disconnected"
 
 		if err := s.storage.CreateConnection(r.Context(), &connection); err != nil {
@@ -297,33 +447,116 @@ func (s *Server) handleDevices(w http.ResponseWriter, r *http.Request) {
 	sessionID := extractIDFromPath(r.URL.Path, "/api/sessions/")
 	connectionID := extractIDFromPath(r.URL.Path, "/api/connections/")
 
+	s.logger.Debug().Str("method", r.Method).Str("path", r.URL.Path).Str("id", id).Str("sessionID", sessionID).Str("connectionID", connectionID).Msg("handleDevices called")
+
 	switch r.Method {
 	case "GET":
-		if id != "" {
+		isConnectionDevices := strings.HasPrefix(r.URL.Path, "/api/connections/") && strings.HasSuffix(r.URL.Path, "/devices")
+		isSessionDevices := strings.HasPrefix(r.URL.Path, "/api/sessions/") && strings.HasSuffix(r.URL.Path, "/devices")
+		isDeviceRead := id != "" && strings.HasSuffix(r.URL.Path, "/read")
+
+		// Handle device read endpoint
+		if isDeviceRead && id != "" {
 			device, err := s.storage.GetDevice(r.Context(), id)
 			if err != nil {
+				s.logger.Error().Err(err).Str("id", id).Msg("Device not found")
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(`{"error": "Device not found"}`))
+				return
+			}
+
+			// Get connection for this device
+			conn, err := s.storage.GetConnection(r.Context(), device.ConnectionID)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(fmt.Sprintf(`{"error": "Connection not found: %s"}`, err.Error())))
+				return
+			}
+
+			if conn.Status != "connected" {
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte(`{"error": "Connection is not established"}`))
+				return
+			}
+
+			// Read data from the connection, passing the device's parser ID
+			data, err := s.connMgr.ReadAndParse(r.Context(), device.ConnectionID, device.ParserID)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(fmt.Sprintf(`{"error": "Failed to read device: %s"}`, err.Error())))
+				return
+			}
+
+			// Extract the device data - the key could be device ID, parser ID, or "device"
+			// We take the first available data if the expected keys don't match
+			var deviceData map[string]interface{}
+			if data[device.ID] != nil {
+				deviceData = data[device.ID]
+			} else if data[device.ParserID] != nil {
+				deviceData = data[device.ParserID]
+			} else if data["device"] != nil {
+				deviceData = data["device"]
+			} else {
+				// Take the first available data
+				for _, v := range data {
+					deviceData = v
+					break
+				}
+			}
+			if deviceData == nil {
+				deviceData = make(map[string]interface{})
+			}
+
+			response := map[string]interface{}{
+				"sessionId": device.SessionID,
+				"deviceId":  device.ID,
+				"timestamp": time.Now().UnixMilli(),
+				"data":      deviceData,
+			}
+			json.NewEncoder(w).Encode(response)
+			return
+		}
+
+		if id != "" && !isConnectionDevices && !isSessionDevices && !isDeviceRead {
+			device, err := s.storage.GetDevice(r.Context(), id)
+			if err != nil {
+				s.logger.Error().Err(err).Str("id", id).Msg("Device not found")
 				w.WriteHeader(http.StatusNotFound)
 				w.Write([]byte(`{"error": "Device not found"}`))
 				return
 			}
 			json.NewEncoder(w).Encode(device)
-		} else if connectionID != "" {
+		} else if isConnectionDevices && connectionID != "" {
+			s.logger.Debug().Str("connectionID", connectionID).Msg("Listing devices by connection")
+			_, err := s.storage.GetConnection(r.Context(), connectionID)
+			if err != nil {
+				s.logger.Error().Err(err).Str("connectionID", connectionID).Msg("Connection not found")
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(fmt.Sprintf(`{"error": "Connection '%s' not found"}`, connectionID)))
+				return
+			}
 			devices, err := s.storage.ListDevicesByConnection(r.Context(), connectionID)
 			if err != nil {
+				s.logger.Error().Err(err).Str("connectionID", connectionID).Msg("Failed to list devices by connection")
 				w.WriteHeader(http.StatusInternalServerError)
 				w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
 				return
 			}
+			s.logger.Debug().Int("deviceCount", len(devices)).Str("connectionID", connectionID).Msg("Devices listed successfully")
 			json.NewEncoder(w).Encode(devices)
-		} else if sessionID != "" {
+		} else if isSessionDevices && sessionID != "" {
+			s.logger.Debug().Str("sessionID", sessionID).Msg("Listing devices by session")
 			devices, err := s.storage.ListDevicesBySession(r.Context(), sessionID)
 			if err != nil {
+				s.logger.Error().Err(err).Str("sessionID", sessionID).Msg("Failed to list devices by session")
 				w.WriteHeader(http.StatusInternalServerError)
 				w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
 				return
 			}
+			s.logger.Debug().Int("deviceCount", len(devices)).Str("sessionID", sessionID).Msg("Devices listed successfully")
 			json.NewEncoder(w).Encode(devices)
 		} else {
+			s.logger.Warn().Str("path", r.URL.Path).Msg("Invalid device request path")
 			w.WriteHeader(http.StatusBadRequest)
 			w.Write([]byte(`{"error": "Session ID, Connection ID, or Device ID required"}`))
 			return
@@ -345,6 +578,7 @@ func (s *Server) handleDevices(w http.ResponseWriter, r *http.Request) {
 		device.ID = uuid.New().String()
 		device.SessionID = sessionID
 		device.CreatedAt = time.Now()
+		device.UpdatedAt = time.Now()
 
 		if err := s.storage.CreateDevice(r.Context(), &device); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -426,6 +660,7 @@ func (s *Server) handleParsers(w http.ResponseWriter, r *http.Request) {
 		}
 		parser.ID = uuid.New().String()
 		parser.CreatedAt = time.Now()
+		parser.UpdatedAt = time.Now()
 
 		if err := s.storage.CreateParser(r.Context(), &parser); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)

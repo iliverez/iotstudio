@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { connectionsApi, devicesApi } from '@/api/client'
 import { ConnectionForm } from './ConnectionForm'
 import { DeviceForm } from '../device/DeviceForm'
+import { DeviceMonitor } from '../device/DeviceMonitor'
 import type { Connection, Device } from '@/types'
 import './ConnectionsTab.css'
 
@@ -17,6 +18,9 @@ export function ConnectionsTab({ sessionId, connections, onUpdate }: Connections
   const [expandedConnections, setExpandedConnections] = useState<Set<string>>(new Set())
   const [connectionsDevices, setConnectionsDevices] = useState<Map<string, Device[]>>(new Map())
   const [error, setError] = useState<string | null>(null)
+  const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null)
+  const [selectedDevice, setSelectedDevice] = useState<Device | null>(null)
+  const [connectingIds, setConnectingIds] = useState<Set<string>>(new Set())
 
   const loadDevicesForConnection = async (connectionId: string) => {
     try {
@@ -42,11 +46,53 @@ export function ConnectionsTab({ sessionId, connections, onUpdate }: Connections
     })
   }
 
+  const handleConnect = async (connectionId: string) => {
+    setConnectingIds((prev) => new Set(prev).add(connectionId))
+    try {
+      await connectionsApi.connect(connectionId)
+      onUpdate()
+    } catch (err: any) {
+      console.error('Failed to connect:', err)
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to connect'
+      setError(errorMessage)
+    } finally {
+      setConnectingIds((prev) => {
+        const newSet = new Set(prev)
+        newSet.delete(connectionId)
+        return newSet
+      })
+    }
+  }
+
+  const handleDisconnect = async (connectionId: string) => {
+    setConnectingIds((prev) => new Set(prev).add(connectionId))
+    try {
+      await connectionsApi.disconnect(connectionId)
+      onUpdate()
+    } catch (err: any) {
+      console.error('Failed to disconnect:', err)
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to disconnect'
+      setError(errorMessage)
+    } finally {
+      setConnectingIds((prev) => {
+        const newSet = new Set(prev)
+        newSet.delete(connectionId)
+        return newSet
+      })
+    }
+  }
+
   const handleCreateDevice = async (deviceData: Partial<Device>) => {
     try {
       await devicesApi.create(sessionId, deviceData)
       setShowDeviceForm(false)
       await onUpdate()
+      setConnectionsDevices(new Map())
+      if (expandedConnections.size > 0) {
+        for (const connId of expandedConnections) {
+          await loadDevicesForConnection(connId)
+        }
+      }
     } catch (err: any) {
       console.error('Failed to create device:', err)
       const errorMessage = err.response?.data?.error || err.message || 'Failed to create device'
@@ -126,6 +172,8 @@ export function ConnectionsTab({ sessionId, connections, onUpdate }: Connections
           {connectionsList.map((connection) => {
             const devices = connectionsDevices.get(connection.id) || []
             const isExpanded = expandedConnections.has(connection.id)
+            const isConnecting = connectingIds.has(connection.id)
+            const isConnected = connection.status === 'connected'
 
             return (
               <div key={connection.id} className="connection-card-expanded">
@@ -145,7 +193,36 @@ export function ConnectionsTab({ sessionId, connections, onUpdate }: Connections
                       <span className="device-count">{devices.length} devices</span>
                     </div>
                   </div>
-                  <button className="btn-icon">{isExpanded ? '▼' : '▶'}</button>
+                  <div className="connection-actions-row">
+                    {isConnected ? (
+                      <button
+                        className="btn btn-secondary btn-small"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleDisconnect(connection.id)
+                        }}
+                        disabled={isConnecting}
+                        title="Disconnect"
+                      >
+                        {isConnecting ? 'Disconnecting...' : 'Disconnect'}
+                      </button>
+                    ) : (
+                      <button
+                        className="btn btn-primary btn-small"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleConnect(connection.id)
+                        }}
+                        disabled={isConnecting || connection.status === 'connecting'}
+                        title="Connect"
+                      >
+                        {isConnecting || connection.status === 'connecting' ? 'Connecting...' : 'Connect'}
+                      </button>
+                    )}
+                    <button className="btn-icon" onClick={(e) => { e.stopPropagation(); toggleConnection(connection.id) }}>
+                      {isExpanded ? '▼' : '▶'}
+                    </button>
+                  </div>
                 </div>
 
                 {isExpanded && (
@@ -154,7 +231,10 @@ export function ConnectionsTab({ sessionId, connections, onUpdate }: Connections
                       <span>Devices ({devices.length})</span>
                       <button
                         className="btn btn-secondary"
-                        onClick={() => setShowDeviceForm(true)}
+                        onClick={() => {
+                          setSelectedConnectionId(connection.id)
+                          setShowDeviceForm(true)
+                        }}
                       >
                         + Add Device
                       </button>
@@ -177,13 +257,23 @@ export function ConnectionsTab({ sessionId, connections, onUpdate }: Connections
                                 <span className="device-description">{device.description}</span>
                               )}
                             </div>
-                            <button
-                              className="btn-icon btn-danger"
-                              onClick={() => handleDeleteDevice(device.id, device.name)}
-                              title="Delete device"
-                            >
-                              ×
-                            </button>
+                            <div className="device-actions">
+                              <button
+                                className="btn btn-secondary btn-small"
+                                onClick={() => setSelectedDevice(device)}
+                                disabled={connection.status !== 'connected'}
+                                title={connection.status === 'connected' ? 'Monitor device' : 'Connect first to monitor'}
+                              >
+                                📊 Monitor
+                              </button>
+                              <button
+                                className="btn-icon btn-danger"
+                                onClick={() => handleDeleteDevice(device.id, device.name)}
+                                title="Delete device"
+                              >
+                                ×
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -220,10 +310,20 @@ export function ConnectionsTab({ sessionId, connections, onUpdate }: Connections
         <DeviceForm
           connections={connectionsList}
           onSave={handleCreateDevice}
+          defaultConnectionId={selectedConnectionId || undefined}
           onClose={() => {
             setShowDeviceForm(false)
+            setSelectedConnectionId(null)
             setError(null)
           }}
+        />
+      )}
+
+      {selectedDevice && (
+        <DeviceMonitor
+          device={selectedDevice}
+          connectionStatus={connections.find((c) => c.id === selectedDevice.connectionId)?.status || 'disconnected'}
+          onClose={() => setSelectedDevice(null)}
         />
       )}
     </div>

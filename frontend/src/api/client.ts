@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { Session, Connection, Device, Parser } from '@/types'
+import type { Session, Connection, Device, Parser, ConnectionState, DataPoint } from '@/types'
 
 const api = axios.create({
   baseURL: '/api',
@@ -25,6 +25,9 @@ export const connectionsApi = {
   create: (sessionId: string, data: Partial<Connection>) =>
     api.post<Connection>(`/sessions/${sessionId}/connections`, data),
   delete: (id: string) => api.delete(`/connections/${id}`),
+  connect: (id: string) => api.post<Connection>(`/connections/${id}/connect`),
+  disconnect: (id: string) => api.post<Connection>(`/connections/${id}/disconnect`),
+  status: (id: string) => api.get<ConnectionState>(`/connections/${id}/status`),
 }
 
 export const devicesApi = {
@@ -38,6 +41,11 @@ export const devicesApi = {
   create: (sessionId: string, data: Partial<Device>) =>
     api.post<Device>(`/sessions/${sessionId}/devices`, data),
   delete: (id: string) => api.delete(`/devices/${id}`),
+  read: (id: string) => api.get<DataPoint>(`/devices/${id}/read`),
+  startMonitor: (id: string, intervalMs: number) =>
+    api.post<{ success: boolean }>(`/devices/${id}/monitor/start`, { intervalMs }),
+  stopMonitor: (id: string) =>
+    api.post<{ success: boolean }>(`/devices/${id}/monitor/stop`),
 }
 
 export const parsersApi = {

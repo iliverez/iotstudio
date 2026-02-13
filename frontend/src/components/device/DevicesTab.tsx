@@ -1,7 +1,7 @@
-import { useState } from 'react'
-import { devicesApi } from '@/api/client'
+import { useState, useEffect } from 'react'
+import { devicesApi, parsersApi } from '@/api/client'
 import { DeviceForm } from './DeviceForm'
-import type { Device, Connection } from '@/types'
+import type { Device, Connection, Parser } from '@/types'
 import './DevicesTab.css'
 
 interface DevicesTabProps {
@@ -13,6 +13,19 @@ interface DevicesTabProps {
 
 export function DevicesTab({ sessionId, devices, connections, onUpdate }: DevicesTabProps) {
   const [showForm, setShowForm] = useState(false)
+  const [parsers, setParsers] = useState<Parser[]>([])
+
+  useEffect(() => {
+    const loadParsers = async () => {
+      try {
+        const response = await parsersApi.list()
+        setParsers(response.data || [])
+      } catch (error) {
+        console.error('Failed to load parsers:', error)
+      }
+    }
+    loadParsers()
+  }, [])
 
   const handleCreateDevice = async (deviceData: Partial<Device>) => {
     await devicesApi.create(sessionId, deviceData)
@@ -36,6 +49,11 @@ export function DevicesTab({ sessionId, devices, connections, onUpdate }: Device
   const getConnectionName = (connectionId: string) => {
     const conn = connections.find((c) => c.id === connectionId)
     return conn?.name || 'Unknown'
+  }
+
+  const getParserName = (parserId: string) => {
+    const parser = parsers.find((p) => p.id === parserId)
+    return parser?.name || 'Unknown'
   }
 
   return (
@@ -83,8 +101,8 @@ export function DevicesTab({ sessionId, devices, connections, onUpdate }: Device
                 )}
                 {device.parserId && (
                   <div className="device-detail">
-                    <span className="label">Parser ID:</span>
-                    <span className="value">{device.parserId}</span>
+                    <span className="label">Parser:</span>
+                    <span className="value">{getParserName(device.parserId)}</span>
                   </div>
                 )}
               </div>

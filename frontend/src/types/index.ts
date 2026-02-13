@@ -36,11 +36,23 @@ export interface Device {
 export interface Parser {
   id: string
   name: string
-  type: 'visual' | 'javascript' | 'builtin'
+  type: 'visual' | 'javascript' | 'builtin' | 'modbus'
   fields: ParserField[]
   builtinType: string | null
+  modbusRegisters?: ModbusRegister[]
   createdAt: string
   updatedAt: string
+}
+
+export interface ModbusRegister {
+  name: string
+  registerType: 'coil' | 'discrete_input' | 'holding_register' | 'input_register'
+  address: number
+  quantity: number
+  dataType: 'bool' | 'int16' | 'uint16' | 'int32' | 'uint32' | 'float32' | 'float64'
+  endianness: 'big' | 'little'
+  scale: number
+  offset: number
 }
 
 export interface ParserField {

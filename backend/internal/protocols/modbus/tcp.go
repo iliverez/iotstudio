@@ -43,8 +43,11 @@ func (h *ModbusTCPHandler) Connect(ctx context.Context, config api.ConnectionCon
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	// If already connected, we assume it's still valid
+	// The actual read/write will fail if the connection is dead
 	if h.conn != nil {
-		return fmt.Errorf("already connected")
+		log.Debug().Str("address", fmt.Sprintf("%s:%d", h.config.Host, h.config.Port)).Msg("Already connected, reusing connection")
+		return nil
 	}
 
 	if h.config.UseMock {
@@ -57,6 +60,8 @@ func (h *ModbusTCPHandler) Connect(ctx context.Context, config api.ConnectionCon
 	if h.config.Timeout > 0 {
 		timeout = h.config.Timeout
 	}
+
+	log.Debug().Str("address", address).Dur("timeout", timeout).Msg("Attempting to connect to Modbus TCP server")
 
 	conn, err := net.DialTimeout("tcp", address, timeout)
 	if err != nil {
@@ -464,6 +469,7 @@ func (h *ModbusTCPHandler) sendRequest(ctx context.Context, unitID uint8, pdu []
 		return h.mockSendRequest(pdu)
 	}
 
+	// Check if connected, if not return error (caller should reconnect)
 	if h.conn == nil {
 		return nil, ErrNotConnected
 	}
@@ -476,19 +482,39 @@ func (h *ModbusTCPHandler) sendRequest(ctx context.Context, unitID uint8, pdu []
 		timeout = h.config.Timeout
 	}
 
+	// Log the request details
+	log.Debug().
+		Uint16("txID", h.txCounter).
+		Uint8("unitID", unitID).
+		Int("frameLen", len(frame)).
+		Str("host", h.config.Host).
+		Int("port", h.config.Port).
+		Hex("frame", frame).
+		Msg("Sending Modbus TCP request")
+
 	h.conn.SetDeadline(time.Now().Add(timeout))
-	_, err := h.conn.Write(frame)
+	n, err := h.conn.Write(frame)
 	if err != nil {
 		h.metrics.ErrorCount++
+		// Connection might be dead, close it
+		h.conn.Close()
+		h.conn = nil
 		return nil, fmt.Errorf("failed to write request: %w", err)
 	}
 
-	h.metrics.BytesWritten += int64(len(frame))
+	h.metrics.BytesWritten += int64(n)
 	h.metrics.WriteCount++
 	h.metrics.LastWrite = time.Now()
 
+	log.Debug().Int("bytesWritten", n).Msg("Modbus request sent successfully")
+
 	response, err := h.readResponse(ctx)
 	if err != nil {
+		// Connection might be dead, close it
+		if h.conn != nil {
+			h.conn.Close()
+			h.conn = nil
+		}
 		return nil, err
 	}
 

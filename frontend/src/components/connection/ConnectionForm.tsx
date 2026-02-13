@@ -37,8 +37,10 @@ export function ConnectionForm({ sessionId, onSave, onClose }: ConnectionFormPro
       })
       console.log('Connection created:', response.data)
       onSave()
+      onClose()
     } catch (err) {
       setError('Failed to create connection')
+    } finally {
       setSubmitting(false)
     }
   }

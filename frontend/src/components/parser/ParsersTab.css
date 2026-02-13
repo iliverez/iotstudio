@@ -1,0 +1,144 @@
+.parsers-tab {
+  padding: 1rem;
+}
+
+.parsers-tab .tab-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.parsers-tab .tab-header h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: var(--text-primary, #333);
+}
+
+.parsers-tab .loading-state,
+.parsers-tab .empty-state {
+  text-align: center;
+  padding: 2rem;
+  color: var(--text-secondary, #666);
+}
+
+.parsers-tab .empty-state .hint {
+  font-size: 0.875rem;
+  color: var(--text-muted, #888);
+  margin-top: 0.5rem;
+}
+
+.parsers-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1rem;
+}
+
+.parser-card {
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 8px;
+  background: var(--bg-primary, #fff);
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.parser-card:hover {
+  border-color: var(--primary-color, #007bff);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.parser-card.selected {
+  border-color: var(--primary-color, #007bff);
+  background: var(--primary-light, #f0f7ff);
+}
+
+.parser-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-color, #eee);
+}
+
+.parser-info h4 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1rem;
+  color: var(--text-primary, #333);
+}
+
+.parser-type {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #666);
+  background: var(--bg-secondary, #f0f0f0);
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+}
+
+.parser-actions {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.parser-actions .btn-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.parser-actions .btn-edit:hover {
+  background: var(--primary-light, #e3f2fd);
+  color: var(--primary-color, #007bff);
+}
+
+.parser-actions .btn-danger:hover {
+  background: var(--danger-light, #ffebee);
+  color: var(--danger-color, #dc3545);
+}
+
+.parser-card-body {
+  padding: 1rem;
+}
+
+.parser-detail {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.parser-detail .label {
+  color: var(--text-secondary, #666);
+}
+
+.parser-detail .value {
+  color: var(--text-primary, #333);
+  font-weight: 500;
+}
+
+.parser-fields-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+}
+
+.field-tag {
+  font-size: 0.75rem;
+  padding: 0.125rem 0.5rem;
+  background: var(--bg-secondary, #f0f0f0);
+  border-radius: 4px;
+  color: var(--text-secondary, #666);
+}
+
+.field-tag.more {
+  background: var(--primary-light, #e3f2fd);
+  color: var(--primary-color, #007bff);
+}

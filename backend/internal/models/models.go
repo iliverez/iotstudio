@@ -47,13 +47,14 @@ type DataPoint struct {
 }
 
 type Parser struct {
-	ID          string        `json:"id"`
-	Name        string        `json:"name"`
-	Type        string        `json:"type"`
-	Fields      []ParserField `json:"fields"`
-	BuiltInType string        `json:"builtinType`
-	CreatedAt   time.Time     `json:"createdAt"`
-	UpdatedAt   time.Time     `json:"updatedAt"`
+	ID              string           `json:"id"`
+	Name            string           `json:"name"`
+	Type            string           `json:"type"`
+	Fields          []ParserField    `json:"fields"`
+	BuiltInType     string           `json:"builtinType"`
+	ModbusRegisters []ModbusRegister `json:"modbusRegisters"`
+	CreatedAt       time.Time        `json:"createdAt"`
+	UpdatedAt       time.Time        `json:"updatedAt"`
 }
 
 type ParserField struct {
@@ -67,4 +68,15 @@ type ParserField struct {
 	Scale       float64 `json:"scale"`
 	ValueOffset float64 `json:"offset"`
 	ArrayLength int     `json:"arrayLength"`
+}
+
+type ModbusRegister struct {
+	Name         string  `json:"name"`
+	RegisterType string  `json:"registerType"` // coil, discrete_input, holding_register, input_register
+	Address      uint16  `json:"address"`
+	Quantity     uint16  `json:"quantity"`
+	DataType     string  `json:"dataType"` // bool, int16, uint16, int32, uint32, float32, float64
+	Endianness   string  `json:"endianness"`
+	Scale        float64 `json:"scale"`
+	Offset       float64 `json:"offset"`
 }

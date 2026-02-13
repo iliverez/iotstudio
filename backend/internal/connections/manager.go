@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -153,7 +154,64 @@ func (cm *ConnectionManager) CreateConnection(ctx context.Context, conn *models.
 	return nil
 }
 
+// LoadConnection loads a connection from storage into memory for management
+func (cm *ConnectionManager) LoadConnection(ctx context.Context, connID string) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	// Check if already loaded
+	if _, exists := cm.connections[connID]; exists {
+		return nil
+	}
+
+	// Load from storage
+	conn, err := cm.storage.GetConnection(ctx, connID)
+	if err != nil {
+		return fmt.Errorf("connection not found: %s", connID)
+	}
+
+	var p *models.Parser
+	if conn.ParserID != "" {
+		p, err = cm.storage.GetParser(ctx, conn.ParserID)
+		if err != nil {
+			log.Warn().Err(err).Str("parserID", conn.ParserID).Msg("Failed to load parser for connection")
+		}
+	}
+
+	config := api.ConnectionConfig{
+		ID:         conn.ID,
+		SessionID:  conn.SessionID,
+		Type:       api.ConnectionType(conn.Type),
+		Name:       conn.Name,
+		ConfigJSON: conn.Config,
+	}
+
+	handler, err := cm.protocolFactory[conn.Type](ctx, config)
+	if err != nil {
+		return fmt.Errorf("failed to create protocol handler: %w", err)
+	}
+
+	managedConn := &managedConnection{
+		handler:      handler,
+		connection:   conn,
+		parser:       p,
+		parserEngine: cm.parserEngine,
+		lastActive:   time.Now(),
+	}
+
+	cm.connections[connID] = managedConn
+
+	log.Info().Str("connID", connID).Msg("Connection loaded into manager")
+
+	return nil
+}
+
 func (cm *ConnectionManager) StartConnection(ctx context.Context, connID string) error {
+	// First, ensure the connection is loaded
+	if err := cm.LoadConnection(ctx, connID); err != nil {
+		return err
+	}
+
 	cm.mu.RLock()
 	managedConn, exists := cm.connections[connID]
 	cm.mu.RUnlock()
@@ -230,7 +288,12 @@ func (cm *ConnectionManager) RemoveConnection(ctx context.Context, connID string
 	return nil
 }
 
-func (cm *ConnectionManager) ReadAndParse(ctx context.Context, connID string) (map[string]map[string]interface{}, error) {
+func (cm *ConnectionManager) ReadAndParse(ctx context.Context, connID string, parserID string) (map[string]map[string]interface{}, error) {
+	// First, ensure the connection is loaded
+	if err := cm.LoadConnection(ctx, connID); err != nil {
+		return nil, err
+	}
+
 	cm.mu.RLock()
 	managedConn, exists := cm.connections[connID]
 	cm.mu.RUnlock()
@@ -239,6 +302,58 @@ func (cm *ConnectionManager) ReadAndParse(ctx context.Context, connID string) (m
 		return nil, fmt.Errorf("connection not found: %s", connID)
 	}
 
+	// Load parser if parserID is provided (device-level parser takes precedence)
+	if parserID != "" {
+		parser, err := cm.storage.GetParser(ctx, parserID)
+		if err != nil {
+			log.Warn().Err(err).Str("parserID", parserID).Msg("Failed to load device parser")
+		} else {
+			managedConn.parser = parser
+			log.Debug().Str("parserID", parserID).Int("modbusRegistersCount", len(parser.ModbusRegisters)).Msg("Loaded device parser")
+		}
+	}
+
+	// Check if the handler is actually connected, if not try to connect
+	if !managedConn.handler.IsConnected() {
+		log.Info().Str("connID", connID).Msg("Handler not connected, attempting to connect")
+
+		config := api.ConnectionConfig{
+			ID:         managedConn.connection.ID,
+			SessionID:  managedConn.connection.SessionID,
+			Type:       api.ConnectionType(managedConn.connection.Type),
+			Name:       managedConn.connection.Name,
+			ConfigJSON: managedConn.connection.Config,
+		}
+
+		if err := managedConn.handler.Connect(ctx, config); err != nil {
+			return nil, fmt.Errorf("failed to connect: %w", err)
+		}
+	}
+
+	// Debug log parser state
+	log.Debug().
+		Str("connID", connID).
+		Bool("hasParser", managedConn.parser != nil).
+		Int("modbusRegistersCount", func() int {
+			if managedConn.parser != nil {
+				return len(managedConn.parser.ModbusRegisters)
+			}
+			return 0
+		}()).
+		Str("parserID", func() string {
+			if managedConn.parser != nil {
+				return managedConn.parser.ID
+			}
+			return ""
+		}()).
+		Msg("Parser state check")
+
+	// Check if this is a Modbus connection with ModbusRegisters in parser
+	if managedConn.parser != nil && len(managedConn.parser.ModbusRegisters) > 0 {
+		return cm.readModbusRegisters(ctx, managedConn)
+	}
+
+	// For non-Modbus connections, use the standard Read method
 	data, err := managedConn.handler.Read(ctx)
 	if err != nil {
 		return nil, err
@@ -257,6 +372,215 @@ func (cm *ConnectionManager) ReadAndParse(ctx context.Context, connID string) (m
 	return map[string]map[string]interface{}{
 		"raw": {"data": string(data)},
 	}, nil
+}
+
+// readModbusRegisters reads data from Modbus registers based on parser configuration
+func (cm *ConnectionManager) readModbusRegisters(ctx context.Context, managedConn *managedConnection) (map[string]map[string]interface{}, error) {
+	modbusHandler, ok := managedConn.handler.(*modbus.ModbusTCPHandler)
+	if !ok {
+		return nil, fmt.Errorf("connection is not a Modbus TCP handler")
+	}
+
+	// Ensure the handler is connected before reading
+	if !modbusHandler.IsConnected() {
+		log.Info().Str("connID", managedConn.connection.ID).Msg("Modbus handler not connected, attempting to connect")
+
+		config := api.ConnectionConfig{
+			ID:         managedConn.connection.ID,
+			SessionID:  managedConn.connection.SessionID,
+			Type:       api.ConnectionType(managedConn.connection.Type),
+			Name:       managedConn.connection.Name,
+			ConfigJSON: managedConn.connection.Config,
+		}
+
+		if err := modbusHandler.Connect(ctx, config); err != nil {
+			return nil, fmt.Errorf("failed to connect Modbus handler: %w", err)
+		}
+	}
+
+	// Parse connection config to get slave ID
+	var connConfig struct {
+		SlaveID uint8 `json:"slaveId"`
+	}
+	if managedConn.connection.Config != "" {
+		if err := json.Unmarshal([]byte(managedConn.connection.Config), &connConfig); err != nil {
+			connConfig.SlaveID = 1 // Default slave ID
+		}
+	}
+	if connConfig.SlaveID == 0 {
+		connConfig.SlaveID = 1
+	}
+
+	result := make(map[string]map[string]interface{})
+	deviceData := make(map[string]interface{})
+
+	for _, reg := range managedConn.parser.ModbusRegisters {
+		// Try to read with one retry on connection error
+		value, err := cm.readModbusRegister(ctx, modbusHandler, connConfig.SlaveID, reg)
+		if err != nil {
+			// Check if it's a connection error, try to reconnect and retry once
+			if err == modbus.ErrNotConnected || strings.Contains(err.Error(), "not connected") ||
+				strings.Contains(err.Error(), "broken pipe") || strings.Contains(err.Error(), "connection reset") ||
+				strings.Contains(err.Error(), "EOF") {
+				log.Warn().Err(err).Str("connID", managedConn.connection.ID).Msg("Connection error, attempting reconnect")
+
+				// Reconnect
+				config := api.ConnectionConfig{
+					ID:         managedConn.connection.ID,
+					SessionID:  managedConn.connection.SessionID,
+					Type:       api.ConnectionType(managedConn.connection.Type),
+					Name:       managedConn.connection.Name,
+					ConfigJSON: managedConn.connection.Config,
+				}
+
+				if reconnectErr := modbusHandler.Connect(ctx, config); reconnectErr != nil {
+					deviceData[reg.Name] = map[string]interface{}{
+						"error": fmt.Sprintf("reconnect failed: %s", reconnectErr.Error()),
+					}
+					continue
+				}
+
+				// Retry read
+				value, err = cm.readModbusRegister(ctx, modbusHandler, connConfig.SlaveID, reg)
+				if err != nil {
+					log.Error().Err(err).Str("register", reg.Name).Msg("Failed to read Modbus register after reconnect")
+					deviceData[reg.Name] = map[string]interface{}{
+						"error": err.Error(),
+					}
+					continue
+				}
+			} else {
+				log.Error().Err(err).Str("register", reg.Name).Msg("Failed to read Modbus register")
+				deviceData[reg.Name] = map[string]interface{}{
+					"error": err.Error(),
+				}
+				continue
+			}
+		}
+		deviceData[reg.Name] = value
+	}
+
+	// Use parser ID as device key, or "device" if not available
+	deviceKey := "device"
+	if managedConn.parser.ID != "" {
+		deviceKey = managedConn.parser.ID
+	}
+	result[deviceKey] = deviceData
+
+	managedConn.lastActive = time.Now()
+	return result, nil
+}
+
+// readModbusRegister reads a single Modbus register and returns the parsed value
+func (cm *ConnectionManager) readModbusRegister(ctx context.Context, handler *modbus.ModbusTCPHandler, slaveID uint8, reg models.ModbusRegister) (interface{}, error) {
+	switch reg.RegisterType {
+	case "holding_register":
+		values, err := handler.ReadHoldingRegisters(ctx, slaveID, reg.Address, reg.Quantity)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read holding registers: %w", err)
+		}
+		return cm.parseModbusValues(values, reg)
+
+	case "input_register":
+		values, err := handler.ReadInputRegisters(ctx, slaveID, reg.Address, reg.Quantity)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read input registers: %w", err)
+		}
+		return cm.parseModbusValues(values, reg)
+
+	case "coil":
+		values, err := handler.ReadCoils(ctx, slaveID, reg.Address, reg.Quantity)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read coils: %w", err)
+		}
+		return values, nil
+
+	case "discrete_input":
+		values, err := handler.ReadDiscreteInputs(ctx, slaveID, reg.Address, reg.Quantity)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read discrete inputs: %w", err)
+		}
+		return values, nil
+
+	default:
+		return nil, fmt.Errorf("unknown register type: %s", reg.RegisterType)
+	}
+}
+
+// parseModbusValues converts raw register values to the specified data type
+func (cm *ConnectionManager) parseModbusValues(values []uint16, reg models.ModbusRegister) (interface{}, error) {
+	if len(values) == 0 {
+		return nil, fmt.Errorf("no values read from register")
+	}
+
+	scale := reg.Scale
+	if scale == 0 {
+		scale = 1.0
+	}
+	offset := reg.Offset
+
+	switch reg.DataType {
+	case "uint16":
+		return float64(values[0])*scale + offset, nil
+
+	case "int16":
+		val := int16(values[0])
+		return float64(val)*scale + offset, nil
+
+	case "uint32":
+		if len(values) < 2 {
+			return nil, fmt.Errorf("need 2 registers for uint32")
+		}
+		var val uint32
+		if reg.Endianness == "little" {
+			val = uint32(values[0]) | (uint32(values[1]) << 16)
+		} else {
+			val = (uint32(values[0]) << 16) | uint32(values[1])
+		}
+		return float64(val)*scale + offset, nil
+
+	case "int32":
+		if len(values) < 2 {
+			return nil, fmt.Errorf("need 2 registers for int32")
+		}
+		var val uint32
+		if reg.Endianness == "little" {
+			val = uint32(values[0]) | (uint32(values[1]) << 16)
+		} else {
+			val = (uint32(values[0]) << 16) | uint32(values[1])
+		}
+		return float64(int32(val))*scale + offset, nil
+
+	case "float32":
+		if len(values) < 2 {
+			return nil, fmt.Errorf("need 2 registers for float32")
+		}
+		var bits uint32
+		if reg.Endianness == "little" {
+			bits = uint32(values[0]) | (uint32(values[1]) << 16)
+		} else {
+			bits = (uint32(values[0]) << 16) | uint32(values[1])
+		}
+		val := math.Float32frombits(bits)
+		return float64(val)*scale + offset, nil
+
+	case "float64":
+		if len(values) < 4 {
+			return nil, fmt.Errorf("need 4 registers for float64")
+		}
+		var bits uint64
+		if reg.Endianness == "little" {
+			bits = uint64(values[0]) | (uint64(values[1]) << 16) | (uint64(values[2]) << 32) | (uint64(values[3]) << 48)
+		} else {
+			bits = (uint64(values[0]) << 48) | (uint64(values[1]) << 32) | (uint64(values[2]) << 16) | uint64(values[3])
+		}
+		val := math.Float64frombits(bits)
+		return val*scale + offset, nil
+
+	default:
+		// Return raw values if data type not specified
+		return values, nil
+	}
 }
 
 func (cm *ConnectionManager) GetConnection(connID string) (protocol.ProtocolHandler, error) {

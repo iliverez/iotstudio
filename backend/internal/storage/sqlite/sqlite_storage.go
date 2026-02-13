@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -101,6 +102,7 @@ func (s *SQLiteStorage) migrate() error {
 			type TEXT NOT NULL,
 			fields TEXT NOT NULL,
 			built_in_type TEXT,
+			modbus_registers TEXT,
 			created_at INTEGER NOT NULL,
 			updated_at INTEGER NOT NULL
 		)`,
@@ -119,11 +121,16 @@ func (s *SQLiteStorage) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_devices_connection ON devices(connection_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_data_points_session_device ON data_points(session_id, device_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_data_points_timestamp ON data_points(timestamp)`,
+		// Migration to add modbus_registers column to existing parsers table
+		`ALTER TABLE parsers ADD COLUMN modbus_registers TEXT DEFAULT ''`,
 	}
 
 	for _, migration := range migrations {
 		if _, err := s.db.Exec(migration); err != nil {
-			return fmt.Errorf("migration failed: %s: %w", migration, err)
+			// Ignore "duplicate column name" errors for ALTER TABLE
+			if !strings.Contains(err.Error(), "duplicate column name") {
+				return fmt.Errorf("migration failed: %s: %w", migration, err)
+			}
 		}
 	}
 
@@ -728,9 +735,14 @@ func (s *SQLiteStorage) CreateParser(ctx context.Context, parser *models.Parser)
 		return fmt.Errorf("failed to marshal parser fields: %w", err)
 	}
 
+	modbusRegistersJSON, err := json.Marshal(parser.ModbusRegisters)
+	if err != nil {
+		return fmt.Errorf("failed to marshal modbus registers: %w", err)
+	}
+
 	query := `
-		INSERT INTO parsers (id, name, type, fields, built_in_type, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO parsers (id, name, type, fields, built_in_type, modbus_registers, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := s.db.ExecContext(ctx, query,
@@ -739,6 +751,7 @@ func (s *SQLiteStorage) CreateParser(ctx context.Context, parser *models.Parser)
 		parser.Type,
 		string(fieldsJSON),
 		nullString(parser.BuiltInType),
+		string(modbusRegistersJSON),
 		parser.CreatedAt.Unix(),
 		parser.UpdatedAt.Unix(),
 	)
@@ -756,7 +769,7 @@ func (s *SQLiteStorage) CreateParser(ctx context.Context, parser *models.Parser)
 
 func (s *SQLiteStorage) GetParser(ctx context.Context, id string) (*models.Parser, error) {
 	query := `
-		SELECT id, name, type, fields, built_in_type, created_at, updated_at
+		SELECT id, name, type, fields, built_in_type, modbus_registers, created_at, updated_at
 		FROM parsers
 		WHERE id = ?
 	`
@@ -765,6 +778,7 @@ func (s *SQLiteStorage) GetParser(ctx context.Context, id string) (*models.Parse
 	var createdAt, updatedAt int64
 	var builtInType sql.NullString
 	var fieldsJSON string
+	var modbusRegistersJSON sql.NullString
 
 	err := s.db.QueryRowContext(ctx, query, id).Scan(
 		&parser.ID,
@@ -772,6 +786,7 @@ func (s *SQLiteStorage) GetParser(ctx context.Context, id string) (*models.Parse
 		&parser.Type,
 		&fieldsJSON,
 		&builtInType,
+		&modbusRegistersJSON,
 		&createdAt,
 		&updatedAt,
 	)
@@ -787,6 +802,12 @@ func (s *SQLiteStorage) GetParser(ctx context.Context, id string) (*models.Parse
 		return nil, fmt.Errorf("failed to unmarshal parser fields: %w", err)
 	}
 
+	if modbusRegistersJSON.Valid && modbusRegistersJSON.String != "" {
+		if err := json.Unmarshal([]byte(modbusRegistersJSON.String), &parser.ModbusRegisters); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal modbus registers: %w", err)
+		}
+	}
+
 	if builtInType.Valid {
 		parser.BuiltInType = builtInType.String
 	}
@@ -799,7 +820,7 @@ func (s *SQLiteStorage) GetParser(ctx context.Context, id string) (*models.Parse
 
 func (s *SQLiteStorage) ListParsers(ctx context.Context) ([]*models.Parser, error) {
 	query := `
-		SELECT id, name, type, fields, built_in_type, created_at, updated_at
+		SELECT id, name, type, fields, built_in_type, modbus_registers, created_at, updated_at
 		FROM parsers
 		ORDER BY created_at DESC
 	`
@@ -817,6 +838,7 @@ func (s *SQLiteStorage) ListParsers(ctx context.Context) ([]*models.Parser, erro
 		var createdAt, updatedAt int64
 		var builtInType sql.NullString
 		var fieldsJSON string
+		var modbusRegistersJSON sql.NullString
 
 		if err := rows.Scan(
 			&parser.ID,
@@ -824,6 +846,7 @@ func (s *SQLiteStorage) ListParsers(ctx context.Context) ([]*models.Parser, erro
 			&parser.Type,
 			&fieldsJSON,
 			&builtInType,
+			&modbusRegistersJSON,
 			&createdAt,
 			&updatedAt,
 		); err != nil {
@@ -832,6 +855,12 @@ func (s *SQLiteStorage) ListParsers(ctx context.Context) ([]*models.Parser, erro
 
 		if err := json.Unmarshal([]byte(fieldsJSON), &parser.Fields); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal parser fields: %w", err)
+		}
+
+		if modbusRegistersJSON.Valid && modbusRegistersJSON.String != "" {
+			if err := json.Unmarshal([]byte(modbusRegistersJSON.String), &parser.ModbusRegisters); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal modbus registers: %w", err)
+			}
 		}
 
 		if builtInType.Valid {
@@ -860,9 +889,14 @@ func (s *SQLiteStorage) UpdateParser(ctx context.Context, parser *models.Parser)
 		return fmt.Errorf("failed to marshal parser fields: %w", err)
 	}
 
+	modbusRegistersJSON, err := json.Marshal(parser.ModbusRegisters)
+	if err != nil {
+		return fmt.Errorf("failed to marshal modbus registers: %w", err)
+	}
+
 	query := `
 		UPDATE parsers
-		SET name = ?, type = ?, fields = ?, built_in_type = ?, updated_at = ?
+		SET name = ?, type = ?, fields = ?, built_in_type = ?, modbus_registers = ?, updated_at = ?
 		WHERE id = ?
 	`
 
@@ -872,6 +906,7 @@ func (s *SQLiteStorage) UpdateParser(ctx context.Context, parser *models.Parser)
 		parser.Type,
 		string(fieldsJSON),
 		nullString(parser.BuiltInType),
+		string(modbusRegistersJSON),
 		parser.UpdatedAt.Unix(),
 		parser.ID,
 	)
