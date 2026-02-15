@@ -1,7 +1,38 @@
-import { useState, useEffect, useCallback } from 'react'
-import { devicesApi, parsersApi } from '@/api/client'
-import type { Device, Parser, ModbusRegister, DataPoint } from '@/types'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { devicesApi, parsersApi, monitoringSessionsApi } from '@/api/client'
+import type { Device, Parser, ModbusRegister, SignalConfig, AggregationType, RawDataPoint, AggregatedDataPoint } from '@/types'
 import './DeviceMonitor.css'
+
+// Chart.js imports
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler,
+  TimeScale,
+} from 'chart.js'
+import zoomPlugin from 'chartjs-plugin-zoom'
+import { Line } from 'react-chartjs-2'
+import 'chartjs-adapter-date-fns'
+
+// Register Chart.js components
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler,
+  TimeScale,
+  zoomPlugin
+)
 
 interface DeviceMonitorProps {
   device: Device
@@ -9,15 +40,54 @@ interface DeviceMonitorProps {
   onClose: () => void
 }
 
+function aggregateValue(samples: RawDataPoint[], signalName: string, aggregation: AggregationType): unknown {
+  if (samples.length === 0) return null
+  
+  const values = samples
+    .map(s => s.data[signalName])
+    .filter(v => v !== null && v !== undefined && typeof v === 'number')
+    .map(v => Number(v))
+  
+  if (values.length === 0) return null
+  
+  switch (aggregation) {
+    case 'average':
+      return values.reduce((a, b) => a + b, 0) / values.length
+    case 'max':
+      return Math.max(...values)
+    case 'min':
+      return Math.min(...values)
+    case 'last':
+      return values[values.length - 1]
+    default:
+      return values.reduce((a, b) => a + b, 0) / values.length
+  }
+}
+
 export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonitorProps) {
   const [parser, setParser] = useState<Parser | null>(null)
   const [loading, setLoading] = useState(true)
   const [monitoring, setMonitoring] = useState(false)
-  const [pollInterval, setPollInterval] = useState(5000) // Default 5 seconds
-  const [dataPoints, setDataPoints] = useState<DataPoint[]>([])
+  const [samplingPeriod, setSamplingPeriod] = useState(1000) // Default 1 second
+  const [loggingPeriod, setLoggingPeriod] = useState(5000) // Default 5 seconds
+  const [defaultAggregation, setDefaultAggregation] = useState<AggregationType>('average')
+  const [aggregatedDataPoints, setAggregatedDataPoints] = useState<AggregatedDataPoint[]>([])
+  const [signalConfigs, setSignalConfigs] = useState<SignalConfig[]>([])
   const [currentValues, setCurrentValues] = useState<Record<string, unknown>>({})
   const [error, setError] = useState<string | null>(null)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  const [viewMode, setViewMode] = useState<'table' | 'graph'>('graph')
+  const [showConfigPanel, setShowConfigPanel] = useState(false)
+  const [sessionName, setSessionName] = useState('')
+  const [showSaveDialog, setShowSaveDialog] = useState(false)
+  const [savingSession, setSavingSession] = useState(false)
+  
+  // Internal state for aggregation
+  const pendingSamples = useRef<RawDataPoint[]>([])
+  const lastPeriodEnd = useRef<number>(0)
+  
+  const chartRef = useRef<ChartJS<'line'>>(null)
+  const monitorStartTime = useRef<number>(0)
 
   const isConnected = connectionStatus === 'connected'
 
@@ -27,6 +97,34 @@ export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonit
         try {
           const response = await parsersApi.get(device.parserId)
           setParser(response.data)
+          
+          // Initialize signal configs based on parser fields/registers
+          const registers = response.data.type === 'modbus' && response.data.modbusRegisters 
+            ? response.data.modbusRegisters 
+            : []
+          const fields = response.data.type === 'visual' ? response.data.fields : []
+          
+          const configs: SignalConfig[] = []
+          
+          if (registers.length > 0) {
+            registers.forEach((reg: ModbusRegister) => {
+              configs.push({
+                name: reg.name,
+                loggingPeriod: 5000,
+                aggregation: 'average',
+              })
+            })
+          } else if (fields.length > 0) {
+            fields.forEach((field: { name: string }) => {
+              configs.push({
+                name: field.name,
+                loggingPeriod: 5000,
+                aggregation: 'average',
+              })
+            })
+          }
+          
+          setSignalConfigs(configs)
         } catch (err) {
           console.error('Failed to load parser:', err)
         }
@@ -35,6 +133,56 @@ export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonit
     }
     loadParser()
   }, [device.parserId])
+
+  // Process aggregation - called on each device read
+  const processAggregation = useCallback((dataPointData: Record<string, unknown>) => {
+    const timestamp = Date.now()
+    
+    // Add current sample to pending
+    const rawPoint: RawDataPoint = {
+      timestamp,
+      data: dataPointData || {},
+    }
+    pendingSamples.current.push(rawPoint)
+    
+    // Calculate current period boundary
+    const periodEnd = Math.floor(timestamp / loggingPeriod) * loggingPeriod
+    
+    // Check if we've crossed a period boundary
+    if (periodEnd > lastPeriodEnd.current) {
+      // Get samples from the completed period
+      const periodSamples = pendingSamples.current.filter(
+        s => s.timestamp > lastPeriodEnd.current && s.timestamp <= periodEnd
+      )
+      
+      if (periodSamples.length > 0) {
+        // Aggregate ALL signals into a single data point
+        const aggregatedData: Record<string, unknown> = {}
+        
+        for (const config of signalConfigs) {
+          const value = aggregateValue(periodSamples, config.name, config.aggregation)
+          aggregatedData[config.name] = value
+        }
+        
+        // Create single aggregated data point with all signals
+        const aggPoint: AggregatedDataPoint = {
+          timestamp: periodEnd,
+          periodStart: lastPeriodEnd.current,
+          periodEnd: periodEnd,
+          data: aggregatedData,
+        }
+        
+        setAggregatedDataPoints(prev => [...prev, aggPoint].slice(-5000))
+        
+        // Keep only samples from current period for next aggregation
+        pendingSamples.current = pendingSamples.current.filter(
+          s => s.timestamp > periodEnd
+        )
+      }
+      
+      lastPeriodEnd.current = periodEnd
+    }
+  }, [loggingPeriod, signalConfigs])
 
   const readDevice = useCallback(async () => {
     if (!isConnected) {
@@ -50,22 +198,20 @@ export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonit
       setCurrentValues(dataPoint.data || {})
       setLastUpdate(new Date())
       
-      setDataPoints((prev) => {
-        const newPoints = [dataPoint, ...prev].slice(0, 100) // Keep last 100 points
-        return newPoints
-      })
+      // Process aggregation with the new data point
+      processAggregation(dataPoint.data || {})
     } catch (err: any) {
       console.error('Failed to read device:', err)
       setError(err.response?.data?.error || err.message || 'Failed to read device')
     }
-  }, [device.id, isConnected])
+  }, [device.id, isConnected, processAggregation])
 
   useEffect(() => {
     let intervalId: ReturnType<typeof setInterval> | null = null
 
     if (monitoring && isConnected) {
       readDevice() // Initial read
-      intervalId = setInterval(readDevice, pollInterval)
+      intervalId = setInterval(readDevice, samplingPeriod)
     }
 
     return () => {
@@ -73,12 +219,15 @@ export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonit
         clearInterval(intervalId)
       }
     }
-  }, [monitoring, pollInterval, readDevice, isConnected])
+  }, [monitoring, samplingPeriod, readDevice, isConnected])
 
   const handleStartMonitoring = () => {
-    setMonitoring(true)
-    setDataPoints([])
+    setAggregatedDataPoints([])
+    pendingSamples.current = []
+    lastPeriodEnd.current = 0
     setCurrentValues({})
+    monitorStartTime.current = Date.now()
+    setMonitoring(true)
   }
 
   const handleStopMonitoring = () => {
@@ -106,6 +255,134 @@ export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonit
 
   const registers = getRegisters()
 
+  const handleSignalConfigChange = (signalName: string, field: 'loggingPeriod' | 'aggregation', value: number | AggregationType) => {
+    setSignalConfigs(prev => prev.map(s => 
+      s.name === signalName 
+        ? { ...s, [field]: value }
+        : s
+    ))
+  }
+
+  const handleSaveSession = async () => {
+    if (!sessionName.trim()) {
+      setError('Please enter a session name')
+      return
+    }
+
+    setSavingSession(true)
+    try {
+      await monitoringSessionsApi.create({
+        name: sessionName,
+        deviceId: device.id,
+        samplingPeriod,
+        defaultLoggingPeriod: loggingPeriod,
+        defaultAggregation,
+        signalConfigs: signalConfigs,
+        startTime: monitorStartTime.current,
+        endTime: Date.now(),
+        dataPoints: aggregatedDataPoints,
+        rawDataPoints: [],
+        createdAt: new Date().toISOString(),
+      } as any)
+      setShowSaveDialog(false)
+      setSessionName('')
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to save monitoring session')
+    } finally {
+      setSavingSession(false)
+    }
+  }
+
+  const resetZoom = () => {
+    if (chartRef.current) {
+      chartRef.current.resetZoom()
+    }
+  }
+
+  // Prepare chart data - only uses aggregated data points
+  const chartData = useMemo(() => {
+    const points = aggregatedDataPoints
+    if (points.length === 0) return null
+
+    const signalKeys = signalConfigs.map(s => s.name)
+    const datasets = signalKeys.map((key, index) => {
+      const colors = [
+        { border: '#36a2eb', background: 'rgba(54, 162, 235, 0.1)' },
+        { border: '#ff6384', background: 'rgba(255, 99, 132, 0.1)' },
+        { border: '#4bc0c0', background: 'rgba(75, 192, 192, 0.1)' },
+        { border: '#ff9f40', background: 'rgba(255, 159, 64, 0.1)' },
+        { border: '#9966ff', background: 'rgba(153, 102, 255, 0.1)' },
+        { border: '#c9cbcf', background: 'rgba(201, 203, 207, 0.1)' },
+      ]
+      const color = colors[index % colors.length]
+
+      return {
+        label: key,
+        data: points.map(point => ({
+          x: point.timestamp,
+          y: point.data[key] !== undefined ? Number(point.data[key]) : null,
+        })),
+        borderColor: color.border,
+        backgroundColor: color.background,
+        fill: true,
+        tension: 0.3,
+        pointRadius: 3,
+        pointHoverRadius: 5,
+      }
+    })
+
+    return { datasets }
+  }, [aggregatedDataPoints, signalConfigs])
+
+  const chartOptions = useMemo(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'top' as const,
+        labels: {
+          color: '#888',
+          font: { size: 11 },
+        },
+      },
+      tooltip: {
+        backgroundColor: '#333',
+        titleColor: '#fff',
+        bodyColor: '#ccc',
+        borderColor: '#444',
+        borderWidth: 1,
+      },
+      zoom: {
+        pan: { enabled: true, mode: 'x' as const },
+        zoom: {
+          wheel: { enabled: true },
+          pinch: { enabled: true },
+          mode: 'x' as const,
+        },
+      },
+    },
+    scales: {
+      x: {
+        type: 'time' as const,
+        time: {
+          displayFormats: {
+            millisecond: 'HH:mm:ss.SSS',
+            second: 'HH:mm:ss',
+            minute: 'HH:mm',
+            hour: 'HH:mm',
+          },
+        },
+        ticks: { color: '#888', font: { size: 10 } },
+        grid: { color: '#333' },
+      },
+      y: {
+        ticks: { color: '#888', font: { size: 10 } },
+        grid: { color: '#333' },
+      },
+    },
+    interaction: { intersect: false, mode: 'index' as const },
+  }), [])
+
   if (loading) {
     return (
       <div className="modal-overlay" onClick={onClose}>
@@ -132,7 +409,15 @@ export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonit
               {connectionStatus}
             </span>
           </div>
-          <button className="btn-icon" onClick={onClose}>×</button>
+          <div className="header-actions">
+            <button 
+              className="btn btn-secondary"
+              onClick={() => setShowConfigPanel(!showConfigPanel)}
+            >
+              ⚙ Config
+            </button>
+            <button className="btn-icon" onClick={onClose}>×</button>
+          </div>
         </div>
 
         <div className="modal-body">
@@ -146,6 +431,104 @@ export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonit
             <div className="error-banner">
               {error}
               <button className="btn-icon" onClick={() => setError(null)}>×</button>
+            </div>
+          )}
+
+          {/* Configuration Panel */}
+          {showConfigPanel && (
+            <div className="config-panel">
+              <h3>Monitoring Configuration</h3>
+              
+              <div className="config-grid">
+                <div className="config-item">
+                  <label htmlFor="sampling-period">Sampling Period (ms):</label>
+                  <input
+                    id="sampling-period"
+                    type="number"
+                    value={samplingPeriod}
+                    onChange={(e) => setSamplingPeriod(Math.max(100, parseInt(e.target.value) || 1000))}
+                    min="100"
+                    step="100"
+                    disabled={monitoring}
+                  />
+                  <span className="config-hint">How often to read the device</span>
+                </div>
+
+                <div className="config-item">
+                  <label htmlFor="logging-period">Logging Period (ms):</label>
+                  <input
+                    id="logging-period"
+                    type="number"
+                    value={loggingPeriod}
+                    onChange={(e) => setLoggingPeriod(Math.max(samplingPeriod, parseInt(e.target.value) || 5000))}
+                    min={samplingPeriod}
+                    step="100"
+                    disabled={monitoring}
+                  />
+                  <span className="config-hint">Time window for aggregation</span>
+                </div>
+
+                <div className="config-item">
+                  <label htmlFor="default-aggregation">Default Aggregation:</label>
+                  <select
+                    id="default-aggregation"
+                    value={defaultAggregation}
+                    onChange={(e) => setDefaultAggregation(e.target.value as AggregationType)}
+                    disabled={monitoring}
+                  >
+                    <option value="average">Average</option>
+                    <option value="max">Max</option>
+                    <option value="min">Min</option>
+                    <option value="last">Last</option>
+                  </select>
+                  <span className="config-hint">How to combine samples</span>
+                </div>
+              </div>
+
+              {/* Signal-specific configuration */}
+              {signalConfigs.length > 0 && (
+                <div className="signal-configs">
+                  <h4>Signal Configuration</h4>
+                  <table className="signal-config-table">
+                    <thead>
+                      <tr>
+                        <th>Signal</th>
+                        <th>Logging Period (ms)</th>
+                        <th>Aggregation</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {signalConfigs.map((signal) => (
+                        <tr key={signal.name}>
+                          <td>{signal.name}</td>
+                          <td>
+                            <input
+                              type="number"
+                              value={signal.loggingPeriod}
+                              onChange={(e) => handleSignalConfigChange(signal.name, 'loggingPeriod', Math.max(samplingPeriod, parseInt(e.target.value) || samplingPeriod))}
+                              min={samplingPeriod}
+                              step="100"
+                              disabled={monitoring}
+                            />
+                          </td>
+                          <td>
+                            <select
+                              value={signal.aggregation}
+                              onChange={(e) => handleSignalConfigChange(signal.name, 'aggregation', e.target.value as AggregationType)}
+                              disabled={monitoring}
+                            >
+                              <option value="average">Average</option>
+                              <option value="max">Max</option>
+                              <option value="min">Min</option>
+                              <option value="last">Last</option>
+                            </select>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 
@@ -223,19 +606,6 @@ export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonit
 
           {/* Monitoring Controls */}
           <div className="monitoring-controls">
-            <div className="poll-interval">
-              <label htmlFor="poll-interval">Poll Interval (ms):</label>
-              <input
-                id="poll-interval"
-                type="number"
-                value={pollInterval}
-                onChange={(e) => setPollInterval(Math.max(100, parseInt(e.target.value) || 5000))}
-                min="100"
-                step="100"
-                disabled={monitoring}
-              />
-            </div>
-
             <div className="control-buttons">
               {!monitoring ? (
                 <>
@@ -262,6 +632,22 @@ export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonit
                   ⏹ Stop Monitoring
                 </button>
               )}
+              
+              {/* Show save button when there's data, regardless of monitoring state */}
+              {aggregatedDataPoints.length > 0 && !monitoring && (
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setShowSaveDialog(true)}
+                >
+                  💾 Save Session
+                </button>
+              )}
+            </div>
+
+            <div className="stats">
+              <span className="stat">
+                Logged: {aggregatedDataPoints.length}
+              </span>
             </div>
 
             {lastUpdate && (
@@ -272,34 +658,114 @@ export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonit
           </div>
 
           {/* Data History */}
-          {dataPoints.length > 0 && (
+          {aggregatedDataPoints.length > 0 && (
             <div className="data-history">
-              <h3>Data History ({dataPoints.length} points)</h3>
-              <div className="history-table">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Timestamp</th>
-                      {Object.keys(dataPoints[0]?.data || {}).map((key) => (
-                        <th key={key}>{key}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dataPoints.slice(0, 20).map((point, index) => (
-                      <tr key={index}>
-                        <td>{new Date(point.timestamp).toLocaleTimeString()}</td>
-                        {Object.entries(point.data || {}).map(([key, value]) => (
-                          <td key={key}>{formatValue(value)}</td>
+              <div className="data-history-header">
+                <h3>
+                  Data History ({aggregatedDataPoints.length} logged points)
+                </h3>
+                <div className="view-controls">
+                  {viewMode === 'graph' && (
+                    <button className="btn btn-small" onClick={resetZoom}>
+                      Reset Zoom
+                    </button>
+                  )}
+                  <div className="view-toggle">
+                    <button
+                      className={`toggle-btn ${viewMode === 'table' ? 'active' : ''}`}
+                      onClick={() => setViewMode('table')}
+                      title="Table View"
+                    >
+                      Table
+                    </button>
+                    <button
+                      className={`toggle-btn ${viewMode === 'graph' ? 'active' : ''}`}
+                      onClick={() => setViewMode('graph')}
+                      title="Graph View"
+                    >
+                      Graph
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {viewMode === 'table' ? (
+                <div className="history-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Timestamp</th>
+                        {signalConfigs.map(s => (
+                          <th key={s.name}>{s.name} ({s.aggregation})</th>
                         ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {aggregatedDataPoints.slice(0, 100).map((point, index) => (
+                        <tr key={index}>
+                          <td>{new Date(point.timestamp).toLocaleTimeString()}</td>
+                          {signalConfigs.map(s => (
+                            <td key={s.name}>{formatValue(point.data[s.name])}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="history-chart">
+                  {chartData && (
+                    <Line ref={chartRef} data={chartData} options={chartOptions} />
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
+
+        {/* Save Dialog */}
+        {showSaveDialog && (
+          <div className="modal-overlay" onClick={() => setShowSaveDialog(false)}>
+            <div className="modal-content modal-small" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3>Save Monitoring Session</h3>
+                <button className="btn-icon" onClick={() => setShowSaveDialog(false)}>×</button>
+              </div>
+              <div className="modal-body">
+                <div className="form-group">
+                  <label htmlFor="session-name">Session Name:</label>
+                  <input
+                    id="session-name"
+                    type="text"
+                    value={sessionName}
+                    onChange={(e) => setSessionName(e.target.value)}
+                    placeholder="Enter a name for this session"
+                  />
+                </div>
+                <div className="session-stats">
+                  <p>Aggregated data points: {aggregatedDataPoints.length}</p>
+                  <p>Duration: {monitorStartTime.current > 0 ? 
+                    `${Math.round((Date.now() - monitorStartTime.current) / 1000)}s` : 'N/A'}</p>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button 
+                  className="btn btn-secondary" 
+                  onClick={() => setShowSaveDialog(false)}
+                >
+                  Cancel
+                </button>
+                <button 
+                  className="btn btn-primary" 
+                  onClick={handleSaveSession}
+                  disabled={savingSession || !sessionName.trim()}
+                >
+                  {savingSession ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

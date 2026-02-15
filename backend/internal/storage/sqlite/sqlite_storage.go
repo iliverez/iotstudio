@@ -123,6 +123,21 @@ func (s *SQLiteStorage) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_data_points_timestamp ON data_points(timestamp)`,
 		// Migration to add modbus_registers column to existing parsers table
 		`ALTER TABLE parsers ADD COLUMN modbus_registers TEXT DEFAULT ''`,
+		`CREATE TABLE IF NOT EXISTS monitoring_sessions (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			device_id TEXT NOT NULL,
+			sampling_period INTEGER NOT NULL,
+			default_logging_period INTEGER NOT NULL,
+			default_aggregation TEXT NOT NULL,
+			signal_configs TEXT NOT NULL,
+			start_time INTEGER NOT NULL,
+			end_time INTEGER NOT NULL,
+			data_points TEXT NOT NULL,
+			raw_data_points TEXT NOT NULL,
+			created_at INTEGER NOT NULL,
+			FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+		)`,
 	}
 
 	for _, migration := range migrations {
@@ -1016,6 +1031,296 @@ func (s *SQLiteStorage) QueryData(ctx context.Context, sessionID string, deviceI
 	}
 
 	return points, nil
+}
+
+func (s *SQLiteStorage) CreateMonitoringSession(ctx context.Context, session *models.MonitoringSession) error {
+	signalConfigsJSON, err := json.Marshal(session.SignalConfigs)
+	if err != nil {
+		return fmt.Errorf("failed to marshal signal configs: %w", err)
+	}
+
+	dataPointsJSON, err := json.Marshal(session.DataPoints)
+	if err != nil {
+		return fmt.Errorf("failed to marshal data points: %w", err)
+	}
+
+	rawDataPointsJSON, err := json.Marshal(session.RawDataPoints)
+	if err != nil {
+		return fmt.Errorf("failed to marshal raw data points: %w", err)
+	}
+
+	query := `
+		INSERT INTO monitoring_sessions (id, name, device_id, sampling_period, default_logging_period, default_aggregation, signal_configs, start_time, end_time, data_points, raw_data_points, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+
+	result, err := s.db.ExecContext(ctx, query,
+		session.ID,
+		session.Name,
+		session.DeviceID,
+		session.SamplingPeriod,
+		session.DefaultLoggingPeriod,
+		session.DefaultAggregation,
+		string(signalConfigsJSON),
+		session.StartTime,
+		session.EndTime,
+		string(dataPointsJSON),
+		string(rawDataPointsJSON),
+		session.CreatedAt.Unix(),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create monitoring session: %w", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("no rows inserted")
+	}
+
+	return nil
+}
+
+func (s *SQLiteStorage) GetMonitoringSession(ctx context.Context, id string) (*models.MonitoringSession, error) {
+	query := `
+		SELECT id, name, device_id, sampling_period, default_logging_period, default_aggregation, signal_configs, start_time, end_time, data_points, raw_data_points, created_at
+		FROM monitoring_sessions
+		WHERE id = ?
+	`
+
+	var session models.MonitoringSession
+	var signalConfigsJSON, dataPointsJSON, rawDataPointsJSON string
+	var createdAt int64
+
+	err := s.db.QueryRowContext(ctx, query, id).Scan(
+		&session.ID,
+		&session.Name,
+		&session.DeviceID,
+		&session.SamplingPeriod,
+		&session.DefaultLoggingPeriod,
+		&session.DefaultAggregation,
+		&signalConfigsJSON,
+		&session.StartTime,
+		&session.EndTime,
+		&dataPointsJSON,
+		&rawDataPointsJSON,
+		&createdAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("monitoring session not found: %s", id)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get monitoring session: %w", err)
+	}
+
+	if err := json.Unmarshal([]byte(signalConfigsJSON), &session.SignalConfigs); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal signal configs: %w", err)
+	}
+	if err := json.Unmarshal([]byte(dataPointsJSON), &session.DataPoints); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal data points: %w", err)
+	}
+	if err := json.Unmarshal([]byte(rawDataPointsJSON), &session.RawDataPoints); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal raw data points: %w", err)
+	}
+
+	session.CreatedAt = time.Unix(createdAt, 0)
+
+	return &session, nil
+}
+
+func (s *SQLiteStorage) ListMonitoringSessions(ctx context.Context) ([]*models.MonitoringSession, error) {
+	query := `
+		SELECT id, name, device_id, sampling_period, default_logging_period, default_aggregation, signal_configs, start_time, end_time, data_points, raw_data_points, created_at
+		FROM monitoring_sessions
+		ORDER BY created_at DESC
+	`
+
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list monitoring sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var sessions []*models.MonitoringSession
+	for rows.Next() {
+		var session models.MonitoringSession
+		var signalConfigsJSON, dataPointsJSON, rawDataPointsJSON string
+		var createdAt int64
+
+		if err := rows.Scan(
+			&session.ID,
+			&session.Name,
+			&session.DeviceID,
+			&session.SamplingPeriod,
+			&session.DefaultLoggingPeriod,
+			&session.DefaultAggregation,
+			&signalConfigsJSON,
+			&session.StartTime,
+			&session.EndTime,
+			&dataPointsJSON,
+			&rawDataPointsJSON,
+			&createdAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan monitoring session: %w", err)
+		}
+
+		if err := json.Unmarshal([]byte(signalConfigsJSON), &session.SignalConfigs); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal signal configs: %w", err)
+		}
+		if err := json.Unmarshal([]byte(dataPointsJSON), &session.DataPoints); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal data points: %w", err)
+		}
+		if err := json.Unmarshal([]byte(rawDataPointsJSON), &session.RawDataPoints); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal raw data points: %w", err)
+		}
+
+		session.CreatedAt = time.Unix(createdAt, 0)
+		sessions = append(sessions, &session)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating monitoring sessions: %w", err)
+	}
+
+	if sessions == nil {
+		sessions = []*models.MonitoringSession{}
+	}
+
+	return sessions, nil
+}
+
+func (s *SQLiteStorage) ListMonitoringSessionsByDevice(ctx context.Context, deviceID string) ([]*models.MonitoringSession, error) {
+	query := `
+		SELECT id, name, device_id, sampling_period, default_logging_period, default_aggregation, signal_configs, start_time, end_time, data_points, raw_data_points, created_at
+		FROM monitoring_sessions
+		WHERE device_id = ?
+		ORDER BY created_at DESC
+	`
+
+	rows, err := s.db.QueryContext(ctx, query, deviceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list monitoring sessions by device: %w", err)
+	}
+	defer rows.Close()
+
+	var sessions []*models.MonitoringSession
+	for rows.Next() {
+		var session models.MonitoringSession
+		var signalConfigsJSON, dataPointsJSON, rawDataPointsJSON string
+		var createdAt int64
+
+		if err := rows.Scan(
+			&session.ID,
+			&session.Name,
+			&session.DeviceID,
+			&session.SamplingPeriod,
+			&session.DefaultLoggingPeriod,
+			&session.DefaultAggregation,
+			&signalConfigsJSON,
+			&session.StartTime,
+			&session.EndTime,
+			&dataPointsJSON,
+			&rawDataPointsJSON,
+			&createdAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan monitoring session: %w", err)
+		}
+
+		if err := json.Unmarshal([]byte(signalConfigsJSON), &session.SignalConfigs); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal signal configs: %w", err)
+		}
+		if err := json.Unmarshal([]byte(dataPointsJSON), &session.DataPoints); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal data points: %w", err)
+		}
+		if err := json.Unmarshal([]byte(rawDataPointsJSON), &session.RawDataPoints); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal raw data points: %w", err)
+		}
+
+		session.CreatedAt = time.Unix(createdAt, 0)
+		sessions = append(sessions, &session)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating monitoring sessions: %w", err)
+	}
+
+	if sessions == nil {
+		sessions = []*models.MonitoringSession{}
+	}
+
+	return sessions, nil
+}
+
+func (s *SQLiteStorage) UpdateMonitoringSession(ctx context.Context, session *models.MonitoringSession) error {
+	signalConfigsJSON, err := json.Marshal(session.SignalConfigs)
+	if err != nil {
+		return fmt.Errorf("failed to marshal signal configs: %w", err)
+	}
+
+	dataPointsJSON, err := json.Marshal(session.DataPoints)
+	if err != nil {
+		return fmt.Errorf("failed to marshal data points: %w", err)
+	}
+
+	rawDataPointsJSON, err := json.Marshal(session.RawDataPoints)
+	if err != nil {
+		return fmt.Errorf("failed to marshal raw data points: %w", err)
+	}
+
+	query := `
+		UPDATE monitoring_sessions SET
+			name = ?,
+			device_id = ?,
+			sampling_period = ?,
+			default_logging_period = ?,
+			default_aggregation = ?,
+			signal_configs = ?,
+			start_time = ?,
+			end_time = ?,
+			data_points = ?,
+			raw_data_points = ?
+		WHERE id = ?
+	`
+
+	result, err := s.db.ExecContext(ctx, query,
+		session.Name,
+		session.DeviceID,
+		session.SamplingPeriod,
+		session.DefaultLoggingPeriod,
+		session.DefaultAggregation,
+		string(signalConfigsJSON),
+		session.StartTime,
+		session.EndTime,
+		string(dataPointsJSON),
+		string(rawDataPointsJSON),
+		session.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update monitoring session: %w", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("monitoring session not found: %s", session.ID)
+	}
+
+	return nil
+}
+
+func (s *SQLiteStorage) DeleteMonitoringSession(ctx context.Context, id string) error {
+	query := `DELETE FROM monitoring_sessions WHERE id = ?`
+
+	result, err := s.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete monitoring session: %w", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("monitoring session not found: %s", id)
+	}
+
+	return nil
 }
 
 func (s *SQLiteStorage) Close() error {

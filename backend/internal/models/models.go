@@ -80,3 +80,45 @@ type ModbusRegister struct {
 	Scale        float64 `json:"scale"`
 	Offset       float64 `json:"offset"`
 }
+
+type AggregationType string
+
+const (
+	AggregationAverage AggregationType = "average"
+	AggregationMax     AggregationType = "max"
+	AggregationMin     AggregationType = "min"
+	AggregationLast    AggregationType = "last"
+)
+
+type SignalConfig struct {
+	Name          string          `json:"name"`
+	LoggingPeriod int             `json:"loggingPeriod"`
+	Aggregation   AggregationType `json:"aggregation"`
+}
+
+type MonitoringSession struct {
+	ID                   string                `json:"id"`
+	Name                 string                `json:"name"`
+	DeviceID             string                `json:"deviceId"`
+	SamplingPeriod       int                   `json:"samplingPeriod"`
+	DefaultLoggingPeriod int                   `json:"defaultLoggingPeriod"`
+	DefaultAggregation   AggregationType       `json:"defaultAggregation"`
+	SignalConfigs        []SignalConfig        `json:"signalConfigs"`
+	StartTime            int64                 `json:"startTime"`
+	EndTime              int64                 `json:"endTime"`
+	DataPoints           []AggregatedDataPoint `json:"dataPoints"`
+	RawDataPoints        []RawDataPoint        `json:"rawDataPoints"`
+	CreatedAt            time.Time             `json:"createdAt"`
+}
+
+type RawDataPoint struct {
+	Timestamp int64                  `json:"timestamp"`
+	Data      map[string]interface{} `json:"data"`
+}
+
+type AggregatedDataPoint struct {
+	Timestamp   int64                  `json:"timestamp"`
+	PeriodStart int64                  `json:"periodStart"`
+	PeriodEnd   int64                  `json:"periodEnd"`
+	Data        map[string]interface{} `json:"data"`
+}

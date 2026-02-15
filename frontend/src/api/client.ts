@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { Session, Connection, Device, Parser, ConnectionState, DataPoint } from '@/types'
+import type { Session, Connection, Device, Parser, ConnectionState, DataPoint, MonitoringSession } from '@/types'
 
 const api = axios.create({
   baseURL: '/api',
@@ -54,6 +54,15 @@ export const parsersApi = {
   update: (id: string, data: Partial<Parser>) => api.put<Parser>(`/parsers/${id}`, data),
   delete: (id: string) => api.delete(`/parsers/${id}`),
   create: (data: Partial<Parser>) => api.post<Parser>('/parsers', data),
+}
+
+export const monitoringSessionsApi = {
+  list: () => api.get<MonitoringSession[]>('/monitoring-sessions'),
+  get: (id: string) => api.get<MonitoringSession>(`/monitoring-sessions/${id}`),
+  getByDevice: (deviceId: string) => api.get<MonitoringSession[]>(`/devices/${deviceId}/monitoring-sessions`),
+  create: (data: Partial<MonitoringSession>) => api.post<MonitoringSession>('/monitoring-sessions', data),
+  update: (id: string, data: Partial<MonitoringSession>) => api.put<MonitoringSession>(`/monitoring-sessions/${id}`, data),
+  delete: (id: string) => api.delete(`/monitoring-sessions/${id}`),
 }
 
 export default api

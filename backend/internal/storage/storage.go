@@ -41,6 +41,14 @@ type Storage interface {
 	WriteDataPoints(ctx context.Context, points []models.DataPoint) error
 	QueryData(ctx context.Context, sessionID string, deviceID string, start, end int64) ([]models.DataPoint, error)
 
+	// Monitoring Sessions
+	CreateMonitoringSession(ctx context.Context, session *models.MonitoringSession) error
+	GetMonitoringSession(ctx context.Context, id string) (*models.MonitoringSession, error)
+	ListMonitoringSessions(ctx context.Context) ([]*models.MonitoringSession, error)
+	ListMonitoringSessionsByDevice(ctx context.Context, deviceID string) ([]*models.MonitoringSession, error)
+	UpdateMonitoringSession(ctx context.Context, session *models.MonitoringSession) error
+	DeleteMonitoringSession(ctx context.Context, id string) error
+
 	// Close closes the storage connection
 	Close() error
 }

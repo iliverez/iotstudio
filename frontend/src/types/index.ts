@@ -137,3 +137,38 @@ export interface Dashboard {
   createdAt: string
   updatedAt: string
 }
+
+export type AggregationType = 'average' | 'max' | 'min' | 'last'
+
+export interface SignalConfig {
+  name: string
+  loggingPeriod: number // milliseconds
+  aggregation: AggregationType
+}
+
+export interface MonitoringSession {
+  id: string
+  name: string
+  deviceId: string
+  samplingPeriod: number // milliseconds
+  defaultLoggingPeriod: number // milliseconds
+  defaultAggregation: AggregationType
+  signalConfigs: SignalConfig[]
+  startTime: number // timestamp
+  endTime: number // timestamp
+  dataPoints: AggregatedDataPoint[]
+  rawDataPoints: RawDataPoint[]
+  createdAt: string
+}
+
+export interface RawDataPoint {
+  timestamp: number
+  data: Record<string, unknown>
+}
+
+export interface AggregatedDataPoint {
+  timestamp: number
+  periodStart: number
+  periodEnd: number
+  data: Record<string, unknown>
+}

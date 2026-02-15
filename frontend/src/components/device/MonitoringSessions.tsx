@@ -1,0 +1,355 @@
+import { useState, useEffect, useMemo } from 'react'
+import { monitoringSessionsApi, devicesApi } from '@/api/client'
+import type { MonitoringSession, Device } from '@/types'
+import './MonitoringSessions.css'
+
+// Chart.js imports
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler,
+  TimeScale,
+} from 'chart.js'
+import zoomPlugin from 'chartjs-plugin-zoom'
+import { Line } from 'react-chartjs-2'
+import 'chartjs-adapter-date-fns'
+
+// Register Chart.js components
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler,
+  TimeScale,
+  zoomPlugin
+)
+
+interface MonitoringSessionsProps {
+  onClose: () => void
+  onViewSession?: (session: MonitoringSession) => void
+}
+
+export function MonitoringSessions({ onClose, onViewSession }: MonitoringSessionsProps) {
+  const [sessions, setSessions] = useState<MonitoringSession[]>([])
+  const [loading, setLoading] = useState(true)
+  const [selectedSession, setSelectedSession] = useState<MonitoringSession | null>(null)
+  const [devices, setDevices] = useState<Record<string, Device>>({})
+  const [error, setError] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<'table' | 'graph'>('graph')
+
+  useEffect(() => {
+    loadSessions()
+  }, [])
+
+  const loadSessions = async () => {
+    try {
+      setLoading(true)
+      const response = await monitoringSessionsApi.list()
+      setSessions(response.data)
+      
+      // Load device info for each session
+      const deviceIds = [...new Set(response.data.map(s => s.deviceId))]
+      const deviceMap: Record<string, Device> = {}
+      for (const deviceId of deviceIds) {
+        try {
+          const deviceResponse = await devicesApi.get(deviceId)
+          deviceMap[deviceId] = deviceResponse.data
+        } catch {
+          // Device might have been deleted
+        }
+      }
+      setDevices(deviceMap)
+    } catch (err: any) {
+      setError(err.message || 'Failed to load monitoring sessions')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this monitoring session?')) {
+      return
+    }
+
+    try {
+      await monitoringSessionsApi.delete(id)
+      setSessions(prev => prev.filter(s => s.id !== id))
+      if (selectedSession?.id === id) {
+        setSelectedSession(null)
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete monitoring session')
+    }
+  }
+
+  const handleView = (session: MonitoringSession) => {
+    if (onViewSession) {
+      onViewSession(session)
+    }
+    setSelectedSession(session)
+  }
+
+  const resetZoom = () => {
+    // Reset zoom functionality
+  }
+
+  const chartData = useMemo(() => {
+    if (!selectedSession || !selectedSession.dataPoints.length) return null
+
+    const signalKeys = selectedSession.signalConfigs.map(s => s.name)
+    const datasets = signalKeys.map((key, index) => {
+      const colors = [
+        { border: '#36a2eb', background: 'rgba(54, 162, 235, 0.1)' },
+        { border: '#ff6384', background: 'rgba(255, 99, 132, 0.1)' },
+        { border: '#4bc0c0', background: 'rgba(75, 192, 192, 0.1)' },
+        { border: '#ff9f40', background: 'rgba(255, 159, 64, 0.1)' },
+        { border: '#9966ff', background: 'rgba(153, 102, 255, 0.1)' },
+        { border: '#c9cbcf', background: 'rgba(201, 203, 207, 0.1)' },
+      ]
+      const color = colors[index % colors.length]
+
+      return {
+        label: key,
+        data: selectedSession.dataPoints.map(point => ({
+          x: point.timestamp,
+          y: point.data[key] !== undefined ? Number(point.data[key]) : null,
+        })),
+        borderColor: color.border,
+        backgroundColor: color.background,
+        fill: true,
+        tension: 0.3,
+        pointRadius: 2,
+        pointHoverRadius: 5,
+      }
+    })
+
+    return { datasets }
+  }, [selectedSession])
+
+  const chartOptions = useMemo(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'top' as const,
+        labels: {
+          color: '#888',
+          font: { size: 11 },
+        },
+      },
+      tooltip: {
+        backgroundColor: '#333',
+        titleColor: '#fff',
+        bodyColor: '#ccc',
+        borderColor: '#444',
+        borderWidth: 1,
+      },
+      zoom: {
+        pan: { enabled: true, mode: 'x' as const },
+        zoom: {
+          wheel: { enabled: true },
+          pinch: { enabled: true },
+          mode: 'x' as const,
+        },
+      },
+    },
+    scales: {
+      x: {
+        type: 'time' as const,
+        time: {
+          displayFormats: {
+            millisecond: 'HH:mm:ss.SSS',
+            second: 'HH:mm:ss',
+            minute: 'HH:mm',
+            hour: 'HH:mm',
+          },
+        },
+        ticks: { color: '#888', font: { size: 10 } },
+        grid: { color: '#333' },
+      },
+      y: {
+        ticks: { color: '#888', font: { size: 10 } },
+        grid: { color: '#333' },
+      },
+    },
+    interaction: { intersect: false, mode: 'index' as const },
+  }), [])
+
+  const formatDuration = (start: number, end: number) => {
+    const duration = end - start
+    if (duration < 60000) return `${Math.round(duration / 1000)}s`
+    if (duration < 3600000) return `${Math.round(duration / 60000)}m`
+    return `${Math.round(duration / 3600000)}h`
+  }
+
+  if (loading) {
+    return (
+      <div className="modal-overlay" onClick={onClose}>
+        <div className="modal-content modal-large" onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2>Monitoring Sessions</h2>
+            <button className="btn-icon" onClick={onClose}>×</button>
+          </div>
+          <div className="modal-body">
+            <div className="loading-state">Loading...</div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content modal-large monitoring-sessions" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>Monitoring Sessions</h2>
+          <button className="btn-icon" onClick={onClose}>×</button>
+        </div>
+
+        <div className="modal-body">
+          {error && (
+            <div className="error-banner">
+              {error}
+              <button className="btn-icon" onClick={() => setError(null)}>×</button>
+            </div>
+          )}
+
+          {sessions.length === 0 ? (
+            <div className="empty-state">
+              <p>No monitoring sessions saved yet.</p>
+              <p>Start monitoring a device and save the session to see it here.</p>
+            </div>
+          ) : (
+            <div className="sessions-layout">
+              <div className="sessions-list">
+                <h3>Saved Sessions</h3>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Device</th>
+                      <th>Duration</th>
+                      <th>Points</th>
+                      <th>Created</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sessions.map(session => (
+                      <tr 
+                        key={session.id} 
+                        className={selectedSession?.id === session.id ? 'selected' : ''}
+                        onClick={() => setSelectedSession(session)}
+                      >
+                        <td>{session.name}</td>
+                        <td>{devices[session.deviceId]?.name || 'Unknown'}</td>
+                        <td>{formatDuration(session.startTime, session.endTime)}</td>
+                        <td>{session.dataPoints.length}</td>
+                        <td>{new Date(session.createdAt).toLocaleDateString()}</td>
+                        <td>
+                          <button 
+                            className="btn btn-small btn-secondary"
+                            onClick={(e) => { e.stopPropagation(); handleView(session); }}
+                          >
+                            View
+                          </button>
+                          <button 
+                            className="btn btn-small btn-danger"
+                            onClick={(e) => { e.stopPropagation(); handleDelete(session.id); }}
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {selectedSession && (
+                <div className="session-details">
+                  <div className="session-header">
+                    <h3>{selectedSession.name}</h3>
+                    <div className="session-meta">
+                      <span>Device: {devices[selectedSession.deviceId]?.name || 'Unknown'}</span>
+                      <span>Duration: {formatDuration(selectedSession.startTime, selectedSession.endTime)}</span>
+                      <span>Sampling: {selectedSession.samplingPeriod}ms</span>
+                      <span>Logging: {selectedSession.defaultLoggingPeriod}ms</span>
+                    </div>
+                  </div>
+
+                  <div className="view-controls">
+                    {viewMode === 'graph' && (
+                      <button className="btn btn-small" onClick={resetZoom}>
+                        Reset Zoom
+                      </button>
+                    )}
+                    <div className="view-toggle">
+                      <button
+                        className={`toggle-btn ${viewMode === 'table' ? 'active' : ''}`}
+                        onClick={() => setViewMode('table')}
+                      >
+                        Table
+                      </button>
+                      <button
+                        className={`toggle-btn ${viewMode === 'graph' ? 'active' : ''}`}
+                        onClick={() => setViewMode('graph')}
+                      >
+                        Graph
+                      </button>
+                    </div>
+                  </div>
+
+                  {viewMode === 'graph' ? (
+                    <div className="session-chart">
+                      {chartData && (
+                        <Line data={chartData} options={chartOptions} />
+                      )}
+                    </div>
+                  ) : (
+                    <div className="session-table">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Timestamp</th>
+                            {selectedSession.signalConfigs.map(s => (
+                              <th key={s.name}>{s.name} ({s.aggregation})</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedSession.dataPoints.slice(0, 100).map((point, index) => (
+                            <tr key={index}>
+                              <td>{new Date(point.timestamp).toLocaleTimeString()}</td>
+                              {selectedSession.signalConfigs.map(s => (
+                                <td key={s.name}>
+                                  {point.data[s.name] !== undefined 
+                                    ? Number(point.data[s.name]).toFixed(2) 
+                                    : 'N/A'}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
