@@ -71,6 +71,8 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 	mux.HandleFunc("/api/parsers/", s.handleParsers)
 	mux.HandleFunc("/api/monitoring-sessions", s.handleMonitoringSessions)
 	mux.HandleFunc("/api/monitoring-sessions/", s.handleMonitoringSessions)
+	mux.HandleFunc("/api/engineering-units", s.handleEngineeringUnits)
+	mux.HandleFunc("/api/engineering-units/", s.handleEngineeringUnits)
 
 	s.httpServer = &http.Server{
 		Addr:         addr,
@@ -866,4 +868,86 @@ func (s *Server) handleDeviceMonitoringSessions(w http.ResponseWriter, r *http.R
 
 	w.WriteHeader(http.StatusMethodNotAllowed)
 	json.NewEncoder(w).Encode(map[string]string{"error": "Method not allowed"})
+}
+
+// handleEngineeringUnits handles requests to /api/engineering-units
+func (s *Server) handleEngineeringUnits(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	id := extractIDFromPath(r.URL.Path, "/api/engineering-units/")
+
+	switch r.Method {
+	case "GET":
+		if id != "" {
+			unit, err := s.storage.GetEngineeringUnit(r.Context(), id)
+			if err != nil {
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(`{"error": "Engineering unit not found"}`))
+				return
+			}
+			json.NewEncoder(w).Encode(unit)
+		} else {
+			units, err := s.storage.ListEngineeringUnits(r.Context())
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+				return
+			}
+			json.NewEncoder(w).Encode(units)
+		}
+
+	case "POST":
+		var unit models.EngineeringUnit
+		if err := json.NewDecoder(r.Body).Decode(&unit); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "Invalid request body"}`))
+			return
+		}
+		unit.ID = uuid.New().String()
+		unit.CreatedAt = time.Now()
+
+		if err := s.storage.CreateEngineeringUnit(r.Context(), &unit); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(unit)
+
+	case "PUT":
+		if id == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "Engineering unit ID is required"}`))
+			return
+		}
+
+		var unit models.EngineeringUnit
+		if err := json.NewDecoder(r.Body).Decode(&unit); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "Invalid request body"}`))
+			return
+		}
+		unit.ID = id
+
+		if err := s.storage.UpdateEngineeringUnit(r.Context(), &unit); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+			return
+		}
+		json.NewEncoder(w).Encode(unit)
+
+	case "DELETE":
+		if id == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "Engineering unit ID is required"}`))
+			return
+		}
+
+		if err := s.storage.DeleteEngineeringUnit(r.Context(), id); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
 }

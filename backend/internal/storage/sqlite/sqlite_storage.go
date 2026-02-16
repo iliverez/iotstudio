@@ -138,6 +138,25 @@ func (s *SQLiteStorage) migrate() error {
 			created_at INTEGER NOT NULL,
 			FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
 		)`,
+		`CREATE TABLE IF NOT EXISTS engineering_units (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			symbol TEXT NOT NULL,
+			description TEXT,
+			created_at INTEGER NOT NULL
+		)`,
+		// Seed some common engineering units
+		`INSERT OR IGNORE INTO engineering_units (id, name, symbol, description, created_at) VALUES ('eu-temp-celsius', 'Celsius', '°C', 'Temperature in Celsius', strftime('%s', 'now'))`,
+		`INSERT OR IGNORE INTO engineering_units (id, name, symbol, description, created_at) VALUES ('eu-temp-fahrenheit', 'Fahrenheit', '°F', 'Temperature in Fahrenheit', strftime('%s', 'now'))`,
+		`INSERT OR IGNORE INTO engineering_units (id, name, symbol, description, created_at) VALUES ('eu-humidity', 'Relative Humidity', '%RH', 'Relative Humidity Percentage', strftime('%s', 'now'))`,
+		`INSERT OR IGNORE INTO engineering_units (id, name, symbol, description, created_at) VALUES ('eu-pressure', 'Pressure', 'Pa', 'Pressure in Pascals', strftime('%s', 'now'))`,
+		`INSERT OR IGNORE INTO engineering_units (id, name, symbol, description, created_at) VALUES ('eu-pressure-bar', 'Pressure (bar)', 'bar', 'Pressure in bar', strftime('%s', 'now'))`,
+		`INSERT OR IGNORE INTO engineering_units (id, name, symbol, description, created_at) VALUES ('eu-voltage', 'Voltage', 'V', 'Voltage in Volts', strftime('%s', 'now'))`,
+		`INSERT OR IGNORE INTO engineering_units (id, name, symbol, description, created_at) VALUES ('eu-current', 'Current', 'A', 'Current in Amperes', strftime('%s', 'now'))`,
+		`INSERT OR IGNORE INTO engineering_units (id, name, symbol, description, created_at) VALUES ('eu-power', 'Power', 'W', 'Power in Watts', strftime('%s', 'now'))`,
+		`INSERT OR IGNORE INTO engineering_units (id, name, symbol, description, created_at) VALUES ('eu-energy', 'Energy', 'kWh', 'Energy in kilowatt-hours', strftime('%s', 'now'))`,
+		`INSERT OR IGNORE INTO engineering_units (id, name, symbol, description, created_at) VALUES ('eu-count', 'Count', 'count', 'Count/Number', strftime('%s', 'now'))`,
+		`ALTER TABLE monitoring_sessions ADD COLUMN comments TEXT DEFAULT ''`,
 	}
 
 	for _, migration := range migrations {
@@ -1318,6 +1337,184 @@ func (s *SQLiteStorage) DeleteMonitoringSession(ctx context.Context, id string) 
 	rows, _ := result.RowsAffected()
 	if rows == 0 {
 		return fmt.Errorf("monitoring session not found: %s", id)
+	}
+
+	return nil
+}
+
+func (s *SQLiteStorage) CreateEngineeringUnit(ctx context.Context, unit *models.EngineeringUnit) error {
+	query := `
+		INSERT INTO engineering_units (id, name, symbol, description, created_at)
+		VALUES (?, ?, ?, ?, ?)
+	`
+
+	result, err := s.db.ExecContext(ctx, query,
+		unit.ID,
+		unit.Name,
+		unit.Symbol,
+		unit.Description,
+		unit.CreatedAt.Unix(),
+	)
+	if err != nil {
+		// Check for duplicate name
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			return fmt.Errorf("engineering unit with name '%s' already exists", unit.Name)
+		}
+		return fmt.Errorf("failed to create engineering unit: %w", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("no rows inserted")
+	}
+
+	return nil
+}
+
+func (s *SQLiteStorage) GetEngineeringUnit(ctx context.Context, id string) (*models.EngineeringUnit, error) {
+	query := `
+		SELECT id, name, symbol, description, created_at
+		FROM engineering_units
+		WHERE id = ?
+	`
+
+	var unit models.EngineeringUnit
+	var createdAt int64
+
+	err := s.db.QueryRowContext(ctx, query, id).Scan(
+		&unit.ID,
+		&unit.Name,
+		&unit.Symbol,
+		&unit.Description,
+		&createdAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("engineering unit not found: %s", id)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get engineering unit: %w", err)
+	}
+
+	unit.CreatedAt = time.Unix(createdAt, 0)
+
+	return &unit, nil
+}
+
+func (s *SQLiteStorage) GetEngineeringUnitByName(ctx context.Context, name string) (*models.EngineeringUnit, error) {
+	query := `
+		SELECT id, name, symbol, description, created_at
+		FROM engineering_units
+		WHERE name = ?
+	`
+
+	var unit models.EngineeringUnit
+	var createdAt int64
+
+	err := s.db.QueryRowContext(ctx, query, name).Scan(
+		&unit.ID,
+		&unit.Name,
+		&unit.Symbol,
+		&unit.Description,
+		&createdAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil // Return nil, nil - unit doesn't exist
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get engineering unit by name: %w", err)
+	}
+
+	unit.CreatedAt = time.Unix(createdAt, 0)
+
+	return &unit, nil
+}
+
+func (s *SQLiteStorage) ListEngineeringUnits(ctx context.Context) ([]*models.EngineeringUnit, error) {
+	query := `
+		SELECT id, name, symbol, description, created_at
+		FROM engineering_units
+		ORDER BY name ASC
+	`
+
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list engineering units: %w", err)
+	}
+	defer rows.Close()
+
+	var units []*models.EngineeringUnit
+	for rows.Next() {
+		var unit models.EngineeringUnit
+		var createdAt int64
+
+		if err := rows.Scan(
+			&unit.ID,
+			&unit.Name,
+			&unit.Symbol,
+			&unit.Description,
+			&createdAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan engineering unit: %w", err)
+		}
+
+		unit.CreatedAt = time.Unix(createdAt, 0)
+		units = append(units, &unit)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating engineering units: %w", err)
+	}
+
+	if units == nil {
+		units = []*models.EngineeringUnit{}
+	}
+
+	return units, nil
+}
+
+func (s *SQLiteStorage) UpdateEngineeringUnit(ctx context.Context, unit *models.EngineeringUnit) error {
+	query := `
+		UPDATE engineering_units SET
+			name = ?,
+			symbol = ?,
+			description = ?
+		WHERE id = ?
+	`
+
+	result, err := s.db.ExecContext(ctx, query,
+		unit.Name,
+		unit.Symbol,
+		unit.Description,
+		unit.ID,
+	)
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			return fmt.Errorf("engineering unit with name '%s' already exists", unit.Name)
+		}
+		return fmt.Errorf("failed to update engineering unit: %w", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("engineering unit not found: %s", unit.ID)
+	}
+
+	return nil
+}
+
+func (s *SQLiteStorage) DeleteEngineeringUnit(ctx context.Context, id string) error {
+	query := `DELETE FROM engineering_units WHERE id = ?`
+
+	result, err := s.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete engineering unit: %w", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("engineering unit not found: %s", id)
 	}
 
 	return nil

@@ -58,27 +58,29 @@ type Parser struct {
 }
 
 type ParserField struct {
-	Name        string  `json:"name"`
-	DeviceID    string  `json:"deviceId"`
-	DataType    string  `json:"dataType"`
-	Offset      int     `json:"offset"`
-	BitOffset   int     `json:"bitOffset"`
-	BitWidth    int     `json:"bitWidth"`
-	Endianness  string  `json:"endianness"`
-	Scale       float64 `json:"scale"`
-	ValueOffset float64 `json:"offset"`
-	ArrayLength int     `json:"arrayLength"`
+	Name              string  `json:"name"`
+	DeviceID          string  `json:"deviceId"`
+	DataType          string  `json:"dataType"`
+	Offset            int     `json:"offset"`
+	BitOffset         int     `json:"bitOffset"`
+	BitWidth          int     `json:"bitWidth"`
+	Endianness        string  `json:"endianness"`
+	Scale             float64 `json:"scale"`
+	ValueOffset       float64 `json:"offset"`
+	ArrayLength       int     `json:"arrayLength"`
+	EngineeringUnitID string  `json:"engineeringUnitId"`
 }
 
 type ModbusRegister struct {
-	Name         string  `json:"name"`
-	RegisterType string  `json:"registerType"` // coil, discrete_input, holding_register, input_register
-	Address      uint16  `json:"address"`
-	Quantity     uint16  `json:"quantity"`
-	DataType     string  `json:"dataType"` // bool, int16, uint16, int32, uint32, float32, float64
-	Endianness   string  `json:"endianness"`
-	Scale        float64 `json:"scale"`
-	Offset       float64 `json:"offset"`
+	Name              string  `json:"name"`
+	RegisterType      string  `json:"registerType"` // coil, discrete_input, holding_register, input_register
+	Address           uint16  `json:"address"`
+	Quantity          uint16  `json:"quantity"`
+	DataType          string  `json:"dataType"` // bool, int16, uint16, int32, uint32, float32, float64
+	Endianness        string  `json:"endianness"`
+	Scale             float64 `json:"scale"`
+	Offset            float64 `json:"offset"`
+	EngineeringUnitID string  `json:"engineeringUnitId"`
 }
 
 type AggregationType string
@@ -91,14 +93,16 @@ const (
 )
 
 type SignalConfig struct {
-	Name          string          `json:"name"`
-	LoggingPeriod int             `json:"loggingPeriod"`
-	Aggregation   AggregationType `json:"aggregation"`
+	Name              string          `json:"name"`
+	LoggingPeriod     int             `json:"loggingPeriod"`
+	Aggregation       AggregationType `json:"aggregation"`
+	EngineeringUnitID string          `json:"engineeringUnitId"`
 }
 
 type MonitoringSession struct {
 	ID                   string                `json:"id"`
 	Name                 string                `json:"name"`
+	Comments             string                `json:"comments"`
 	DeviceID             string                `json:"deviceId"`
 	SamplingPeriod       int                   `json:"samplingPeriod"`
 	DefaultLoggingPeriod int                   `json:"defaultLoggingPeriod"`
@@ -121,4 +125,12 @@ type AggregatedDataPoint struct {
 	PeriodStart int64                  `json:"periodStart"`
 	PeriodEnd   int64                  `json:"periodEnd"`
 	Data        map[string]interface{} `json:"data"`
+}
+
+type EngineeringUnit struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Symbol      string    `json:"symbol"`
+	Description string    `json:"description"`
+	CreatedAt   time.Time `json:"createdAt"`
 }

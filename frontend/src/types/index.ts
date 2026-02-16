@@ -53,6 +53,7 @@ export interface ModbusRegister {
   endianness: 'big' | 'little'
   scale: number
   offset: number
+  engineeringUnitId?: string
 }
 
 export interface ParserField {
@@ -66,6 +67,7 @@ export interface ParserField {
   scale: number
   valueOffset: number
   arrayLength: number
+  engineeringUnitId?: string
 }
 
 export interface VisualRule {
@@ -140,10 +142,19 @@ export interface Dashboard {
 
 export type AggregationType = 'average' | 'max' | 'min' | 'last'
 
+export interface EngineeringUnit {
+  id: string
+  name: string
+  symbol: string
+  description: string
+  createdAt: string
+}
+
 export interface SignalConfig {
   name: string
   loggingPeriod: number // milliseconds
   aggregation: AggregationType
+  engineeringUnitId?: string
 }
 
 export interface MonitoringSession {
@@ -158,6 +169,7 @@ export interface MonitoringSession {
   endTime: number // timestamp
   dataPoints: AggregatedDataPoint[]
   rawDataPoints: RawDataPoint[]
+  comments?: string
   createdAt: string
 }
 

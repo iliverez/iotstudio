@@ -49,6 +49,14 @@ type Storage interface {
 	UpdateMonitoringSession(ctx context.Context, session *models.MonitoringSession) error
 	DeleteMonitoringSession(ctx context.Context, id string) error
 
+	// Engineering Units
+	CreateEngineeringUnit(ctx context.Context, unit *models.EngineeringUnit) error
+	GetEngineeringUnit(ctx context.Context, id string) (*models.EngineeringUnit, error)
+	GetEngineeringUnitByName(ctx context.Context, name string) (*models.EngineeringUnit, error)
+	ListEngineeringUnits(ctx context.Context) ([]*models.EngineeringUnit, error)
+	UpdateEngineeringUnit(ctx context.Context, unit *models.EngineeringUnit) error
+	DeleteEngineeringUnit(ctx context.Context, id string) error
+
 	// Close closes the storage connection
 	Close() error
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { devicesApi, parsersApi, monitoringSessionsApi } from '@/api/client'
-import type { Device, Parser, ModbusRegister, SignalConfig, AggregationType, RawDataPoint, AggregatedDataPoint } from '@/types'
+import { devicesApi, parsersApi, monitoringSessionsApi, engineeringUnitsApi } from '@/api/client'
+import type { Device, Parser, ModbusRegister, SignalConfig, AggregationType, RawDataPoint, AggregatedDataPoint, EngineeringUnit } from '@/types'
 import './DeviceMonitor.css'
 
 // Chart.js imports
@@ -81,6 +81,9 @@ export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonit
   const [sessionName, setSessionName] = useState('')
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [savingSession, setSavingSession] = useState(false)
+  const [engineeringUnits, setEngineeringUnits] = useState<EngineeringUnit[]>([])
+  const [sessionComments, setSessionComments] = useState('')
+  const [rightAxisSignal, setRightAxisSignal] = useState<string>('')
   
   // Internal state for aggregation
   const pendingSamples = useRef<RawDataPoint[]>([])
@@ -112,19 +115,34 @@ export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonit
                 name: reg.name,
                 loggingPeriod: 5000,
                 aggregation: 'average',
+                engineeringUnitId: reg.engineeringUnitId,
               })
             })
           } else if (fields.length > 0) {
-            fields.forEach((field: { name: string }) => {
+            fields.forEach((field: { name: string; engineeringUnitId?: string }) => {
               configs.push({
                 name: field.name,
                 loggingPeriod: 5000,
                 aggregation: 'average',
+                engineeringUnitId: field.engineeringUnitId,
               })
             })
           }
           
           setSignalConfigs(configs)
+          
+          // Auto-select signals with different units for right axis
+          if (configs.length > 1) {
+            const units = new Set(configs.map(c => c.engineeringUnitId).filter(Boolean))
+            if (units.size > 1) {
+              // Find first signal with different unit than first signal
+              const firstUnit = configs[0].engineeringUnitId
+              const rightAxisSignal = configs.find(c => c.engineeringUnitId && c.engineeringUnitId !== firstUnit)
+              if (rightAxisSignal) {
+                setRightAxisSignal(rightAxisSignal.name)
+              }
+            }
+          }
         } catch (err) {
           console.error('Failed to load parser:', err)
         }
@@ -132,7 +150,17 @@ export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonit
       setLoading(false)
     }
     loadParser()
+    loadEngineeringUnits()
   }, [device.parserId])
+
+  const loadEngineeringUnits = async () => {
+    try {
+      const response = await engineeringUnitsApi.list()
+      setEngineeringUnits(response.data)
+    } catch (err) {
+      console.error('Failed to load engineering units:', err)
+    }
+  }
 
   // Process aggregation - called on each device read
   const processAggregation = useCallback((dataPointData: Record<string, unknown>) => {
@@ -282,10 +310,12 @@ export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonit
         endTime: Date.now(),
         dataPoints: aggregatedDataPoints,
         rawDataPoints: [],
+        comments: sessionComments,
         createdAt: new Date().toISOString(),
       } as any)
       setShowSaveDialog(false)
       setSessionName('')
+      setSessionComments('')
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to save monitoring session')
     } finally {
@@ -315,6 +345,9 @@ export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonit
         { border: '#c9cbcf', background: 'rgba(201, 203, 207, 0.1)' },
       ]
       const color = colors[index % colors.length]
+      
+      // Determine which y-axis to use based on rightAxisSignal selection
+      const useRightAxis = rightAxisSignal === key
 
       return {
         label: key,
@@ -328,60 +361,88 @@ export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonit
         tension: 0.3,
         pointRadius: 3,
         pointHoverRadius: 5,
+        yAxisID: useRightAxis ? 'y1' : 'y',
       }
     })
 
     return { datasets }
-  }, [aggregatedDataPoints, signalConfigs])
+  }, [aggregatedDataPoints, signalConfigs, rightAxisSignal])
 
-  const chartOptions = useMemo(() => ({
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        position: 'top' as const,
-        labels: {
-          color: '#888',
-          font: { size: 11 },
-        },
-      },
-      tooltip: {
-        backgroundColor: '#333',
-        titleColor: '#fff',
-        bodyColor: '#ccc',
-        borderColor: '#444',
-        borderWidth: 1,
-      },
-      zoom: {
-        pan: { enabled: true, mode: 'x' as const },
-        zoom: {
-          wheel: { enabled: true },
-          pinch: { enabled: true },
-          mode: 'x' as const,
-        },
-      },
-    },
-    scales: {
-      x: {
-        type: 'time' as const,
-        time: {
-          displayFormats: {
-            millisecond: 'HH:mm:ss.SSS',
-            second: 'HH:mm:ss',
-            minute: 'HH:mm',
-            hour: 'HH:mm',
+  const chartOptions = useMemo(() => {
+    const hasRightAxis = rightAxisSignal !== ''
+    const leftAxisConfig = signalConfigs.find(s => s.name !== rightAxisSignal)
+    const rightAxisConfig = signalConfigs.find(s => s.name === rightAxisSignal)
+
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'top' as const,
+          labels: {
+            color: '#888',
+            font: { size: 11 },
           },
         },
-        ticks: { color: '#888', font: { size: 10 } },
-        grid: { color: '#333' },
+        tooltip: {
+          backgroundColor: '#333',
+          titleColor: '#fff',
+          bodyColor: '#ccc',
+          borderColor: '#444',
+          borderWidth: 1,
+        },
+        zoom: {
+          pan: { enabled: true, mode: 'x' as const },
+          zoom: {
+            wheel: { enabled: true },
+            pinch: { enabled: true },
+            mode: 'x' as const,
+          },
+        },
       },
-      y: {
-        ticks: { color: '#888', font: { size: 10 } },
-        grid: { color: '#333' },
+      scales: {
+        x: {
+          type: 'time' as const,
+          time: {
+            displayFormats: {
+              millisecond: 'HH:mm:ss.SSS',
+              second: 'HH:mm:ss',
+              minute: 'HH:mm',
+              hour: 'HH:mm',
+            },
+          },
+          ticks: { color: '#888', font: { size: 10 } },
+          grid: { color: '#333' },
+        },
+        y: {
+          position: 'left' as const,
+          ticks: { color: '#888', font: { size: 10 } },
+          grid: { color: '#333' },
+          title: {
+            display: true,
+            text: leftAxisConfig?.engineeringUnitId 
+              ? engineeringUnits.find(e => e.id === leftAxisConfig?.engineeringUnitId)?.symbol || leftAxisConfig?.name || ''
+              : leftAxisConfig?.name || '',
+            color: '#888',
+          },
+        },
+        y1: {
+          display: hasRightAxis,
+          position: 'right' as const,
+          ticks: { color: '#888', font: { size: 10 } },
+          grid: { drawOnChartArea: false },
+          title: {
+            display: hasRightAxis,
+            text: rightAxisConfig?.engineeringUnitId
+              ? engineeringUnits.find(e => e.id === rightAxisConfig?.engineeringUnitId)?.symbol || rightAxisConfig?.name || ''
+              : rightAxisConfig?.name || '',
+            color: '#888',
+          },
+        },
       },
-    },
-    interaction: { intersect: false, mode: 'index' as const },
-  }), [])
+      interaction: { intersect: false, mode: 'index' as const },
+    }
+  }, [signalConfigs, engineeringUnits, rightAxisSignal])
 
   if (loading) {
     return (
@@ -495,12 +556,20 @@ export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonit
                         <th>Signal</th>
                         <th>Logging Period (ms)</th>
                         <th>Aggregation</th>
+                        <th>Axis</th>
                       </tr>
                     </thead>
                     <tbody>
                       {signalConfigs.map((signal) => (
                         <tr key={signal.name}>
-                          <td>{signal.name}</td>
+                          <td>
+                            {signal.name}
+                            {signal.engineeringUnitId && (
+                              <span className="unit-badge">
+                                {engineeringUnits.find(e => e.id === signal.engineeringUnitId)?.symbol || signal.engineeringUnitId}
+                              </span>
+                            )}
+                          </td>
                           <td>
                             <input
                               type="number"
@@ -521,6 +590,15 @@ export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonit
                               <option value="max">Max</option>
                               <option value="min">Min</option>
                               <option value="last">Last</option>
+                            </select>
+                          </td>
+                          <td>
+                            <select
+                              value={rightAxisSignal === signal.name ? 'right' : 'left'}
+                              onChange={(e) => setRightAxisSignal(e.target.value === 'right' ? signal.name : '')}
+                            >
+                              <option value="left">Left</option>
+                              <option value="right">Right</option>
                             </select>
                           </td>
                         </tr>
@@ -740,6 +818,16 @@ export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonit
                     value={sessionName}
                     onChange={(e) => setSessionName(e.target.value)}
                     placeholder="Enter a name for this session"
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="session-comments">Comments:</label>
+                  <textarea
+                    id="session-comments"
+                    value={sessionComments}
+                    onChange={(e) => setSessionComments(e.target.value)}
+                    placeholder="Add notes about this monitoring session"
+                    rows={3}
                   />
                 </div>
                 <div className="session-stats">

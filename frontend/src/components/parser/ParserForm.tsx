@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { parsersApi } from '@/api/client'
-import type { Parser, ParserField, ModbusRegister } from '@/types'
+import { parsersApi, engineeringUnitsApi } from '@/api/client'
+import type { Parser, ParserField, ModbusRegister, EngineeringUnit } from '@/types'
 import './ParserForm.css'
 
 interface ParserFormProps {
@@ -101,10 +101,22 @@ export function ParserForm({ parser, onSave, onClose, deviceId }: ParserFormProp
   )
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [engineeringUnits, setEngineeringUnits] = useState<EngineeringUnit[]>([])
 
   const isBuiltin = builtinType !== '' && parserType === 'builtin'
 
   useEffect(() => {
+    // Load engineering units
+    const loadEngineeringUnits = async () => {
+      try {
+        const response = await engineeringUnitsApi.list()
+        setEngineeringUnits(response.data)
+      } catch (err) {
+        console.error('Failed to load engineering units:', err)
+      }
+    }
+    loadEngineeringUnits()
+
     if (builtinType !== '' && parserType === 'builtin') {
       // Keep builtin type set
     }
@@ -543,6 +555,24 @@ export function ParserForm({ parser, onSave, onClose, deviceId }: ParserFormProp
                           step="0.01"
                           disabled={submitting}
                         />
+                      </div>
+
+                      <div className="form-group">
+                        <label>Engineering Unit</label>
+                        <select
+                          value={reg.engineeringUnitId || ''}
+                          onChange={(e) =>
+                            handleModbusRegisterChange(index, 'engineeringUnitId', e.target.value)
+                          }
+                          disabled={submitting}
+                        >
+                          <option value="">None</option>
+                          {engineeringUnits.map((unit) => (
+                            <option key={unit.id} value={unit.id}>
+                              {unit.name} ({unit.symbol})
+                            </option>
+                          ))}
+                        </select>
                       </div>
 
                       <div className="form-group field-actions">
