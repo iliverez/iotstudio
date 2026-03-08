@@ -87,21 +87,12 @@ export function SessionManager({ onSessionSelect }: SessionManagerProps) {
             <div key={session.id} className="session-card">
               <div className="session-card-header">
                 <h3>{session.name}</h3>
-                <div className="session-actions">
-                  <button
-                    className="btn btn-primary"
-                    onClick={() => onSessionSelect(session.id)}
-                  >
-                    Manage
-                  </button>
-                  <button
-                    className="btn-icon btn-danger"
-                    onClick={() => handleDelete(session.id, session.name)}
-                    title="Delete session"
-                  >
-                    ×
-                  </button>
-                </div>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => onSessionSelect(session.id)}
+                >
+                  Manage
+                </button>
               </div>
               <div className="session-card-body">
                 <div className="session-info">
@@ -111,6 +102,15 @@ export function SessionManager({ onSessionSelect }: SessionManagerProps) {
                   <span className="session-date">
                     {new Date(session.createdAt).toLocaleDateString()}
                   </span>
+                </div>
+                <div className="session-card-footer">
+                  <button
+                    className="btn-icon btn-danger"
+                    onClick={() => handleDelete(session.id, session.name)}
+                    title="Delete session"
+                  >
+                    🗑️
+                  </button>
                 </div>
               </div>
             </div>

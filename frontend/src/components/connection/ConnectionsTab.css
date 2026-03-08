@@ -52,8 +52,6 @@
 
 .connection-summary {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
   padding: 1rem;
   cursor: pointer;
   transition: background-color 0.2s;
@@ -91,6 +89,13 @@
   font-size: 0.75rem;
   color: #ccc;
   text-transform: uppercase;
+}
+
+.connection-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.5rem;
 }
 
 .connection-meta {

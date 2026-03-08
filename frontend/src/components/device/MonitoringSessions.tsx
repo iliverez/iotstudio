@@ -257,17 +257,25 @@ export function MonitoringSessions({ onClose, onViewSession }: MonitoringSession
                         <td>{session.dataPoints.length}</td>
                         <td>{new Date(session.createdAt).toLocaleDateString()}</td>
                         <td>
-                          <button 
-                            className="btn btn-small btn-secondary"
+                          <button
+                            className="btn-icon btn-secondary"
                             onClick={(e) => { e.stopPropagation(); handleView(session); }}
+                            title="View session"
                           >
-                            View
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                              <circle cx="12" cy="12" r="3"></circle>
+                            </svg>
                           </button>
-                          <button 
-                            className="btn btn-small btn-danger"
+                          <button
+                            className="btn-icon btn-danger"
                             onClick={(e) => { e.stopPropagation(); handleDelete(session.id); }}
+                            title="Delete session"
                           >
-                            Delete
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="3 6 5 6 21 6"></polyline>
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                            </svg>
                           </button>
                         </td>
                       </tr>

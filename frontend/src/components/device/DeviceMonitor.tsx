@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { devicesApi, parsersApi, monitoringSessionsApi, engineeringUnitsApi } from '@/api/client'
+import { devicesApi, parsersApi, monitoringSessionsApi, engineeringUnitsApi, sessionsApi } from '@/api/client'
+import { useDashboardStore } from '@/stores/dashboardStore'
 import type { Device, Parser, ModbusRegister, SignalConfig, AggregationType, RawDataPoint, AggregatedDataPoint, EngineeringUnit } from '@/types'
 import './DeviceMonitor.css'
 
@@ -37,6 +38,7 @@ ChartJS.register(
 interface DeviceMonitorProps {
   device: Device
   connectionStatus: string
+  sessionId: string
   onClose: () => void
 }
 
@@ -64,7 +66,8 @@ function aggregateValue(samples: RawDataPoint[], signalName: string, aggregation
   }
 }
 
-export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonitorProps) {
+export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: DeviceMonitorProps) {
+  const updateSession = useDashboardStore((state) => state.updateSession)
   const [parser, setParser] = useState<Parser | null>(null)
   const [loading, setLoading] = useState(true)
   const [monitoring, setMonitoring] = useState(false)
@@ -91,6 +94,7 @@ export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonit
   
   const chartRef = useRef<ChartJS<'line'>>(null)
   const monitorStartTime = useRef<number>(0)
+  const monitorEndTime = useRef<number>(0)
 
   const isConnected = connectionStatus === 'connected'
 
@@ -219,12 +223,16 @@ export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonit
     }
 
     try {
-      setError(null)
       const response = await devicesApi.read(device.id)
       const dataPoint = response.data
       
       setCurrentValues(dataPoint.data || {})
       setLastUpdate(new Date())
+      
+      // Only clear error on successful read
+      if (error) {
+        setError(null)
+      }
       
       // Process aggregation with the new data point
       processAggregation(dataPoint.data || {})
@@ -232,7 +240,7 @@ export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonit
       console.error('Failed to read device:', err)
       setError(err.response?.data?.error || err.message || 'Failed to read device')
     }
-  }, [device.id, isConnected, processAggregation])
+  }, [device.id, isConnected, processAggregation, error])
 
   useEffect(() => {
     let intervalId: ReturnType<typeof setInterval> | null = null
@@ -249,17 +257,36 @@ export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonit
     }
   }, [monitoring, samplingPeriod, readDevice, isConnected])
 
-  const handleStartMonitoring = () => {
+  const handleStartMonitoring = async () => {
     setAggregatedDataPoints([])
     pendingSamples.current = []
     lastPeriodEnd.current = 0
     setCurrentValues({})
     monitorStartTime.current = Date.now()
     setMonitoring(true)
+    
+    // Update session status to running
+    updateSession(sessionId, { status: 'running' })
+    
+    try {
+      await sessionsApi.update(sessionId, { status: 'running' })
+    } catch (err) {
+      console.error('Failed to update session status:', err)
+    }
   }
 
-  const handleStopMonitoring = () => {
+  const handleStopMonitoring = async () => {
     setMonitoring(false)
+    monitorEndTime.current = Date.now()
+    
+    // Update session status to idle
+    updateSession(sessionId, { status: 'idle' })
+    
+    try {
+      await sessionsApi.update(sessionId, { status: 'idle' })
+    } catch (err) {
+      console.error('Failed to update session status:', err)
+    }
   }
 
   const handleManualRead = () => {
@@ -832,8 +859,8 @@ export function DeviceMonitor({ device, connectionStatus, onClose }: DeviceMonit
                 </div>
                 <div className="session-stats">
                   <p>Aggregated data points: {aggregatedDataPoints.length}</p>
-                  <p>Duration: {monitorStartTime.current > 0 ? 
-                    `${Math.round((Date.now() - monitorStartTime.current) / 1000)}s` : 'N/A'}</p>
+                  <p>Duration: {monitorStartTime.current > 0 ?
+                    `${Math.round(((monitorEndTime.current || Date.now()) - monitorStartTime.current) / 1000)}s` : 'N/A'}</p>
                 </div>
               </div>
               <div className="modal-footer">

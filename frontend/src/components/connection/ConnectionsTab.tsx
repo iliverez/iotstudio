@@ -186,42 +186,44 @@ export function ConnectionsTab({ sessionId, connections, onUpdate }: Connections
                       <h4>{connection.name}</h4>
                       <span className={`connection-type`}>{connection.type}</span>
                     </div>
-                    <div className="connection-meta">
-                      <span className={`status status-${connection.status}`}>
-                        {connection.status}
-                      </span>
-                      <span className="device-count">{devices.length} devices</span>
+                    <div className="connection-bottom">
+                      <div className="connection-meta">
+                        <span className={`status status-${connection.status}`}>
+                          {connection.status}
+                        </span>
+                        <span className="device-count">{devices.length} devices</span>
+                      </div>
+                      <div className="connection-actions-row">
+                        {isConnected ? (
+                          <button
+                            className="btn btn-secondary btn-small"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDisconnect(connection.id)
+                            }}
+                            disabled={isConnecting}
+                            title="Disconnect"
+                          >
+                            {isConnecting ? 'Disconnecting...' : 'Disconnect'}
+                          </button>
+                        ) : (
+                          <button
+                            className="btn btn-primary btn-small"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleConnect(connection.id)
+                            }}
+                            disabled={isConnecting || connection.status === 'connecting'}
+                            title="Connect"
+                          >
+                            {isConnecting || connection.status === 'connecting' ? 'Connecting...' : 'Connect'}
+                          </button>
+                        )}
+                        <button className="btn-icon" onClick={(e) => { e.stopPropagation(); toggleConnection(connection.id) }}>
+                          {isExpanded ? '▼' : '▶'}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                  <div className="connection-actions-row">
-                    {isConnected ? (
-                      <button
-                        className="btn btn-secondary btn-small"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleDisconnect(connection.id)
-                        }}
-                        disabled={isConnecting}
-                        title="Disconnect"
-                      >
-                        {isConnecting ? 'Disconnecting...' : 'Disconnect'}
-                      </button>
-                    ) : (
-                      <button
-                        className="btn btn-primary btn-small"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleConnect(connection.id)
-                        }}
-                        disabled={isConnecting || connection.status === 'connecting'}
-                        title="Connect"
-                      >
-                        {isConnecting || connection.status === 'connecting' ? 'Connecting...' : 'Connect'}
-                      </button>
-                    )}
-                    <button className="btn-icon" onClick={(e) => { e.stopPropagation(); toggleConnection(connection.id) }}>
-                      {isExpanded ? '▼' : '▶'}
-                    </button>
                   </div>
                 </div>
 
@@ -323,6 +325,7 @@ export function ConnectionsTab({ sessionId, connections, onUpdate }: Connections
         <DeviceMonitor
           device={selectedDevice}
           connectionStatus={connections.find((c) => c.id === selectedDevice.connectionId)?.status || 'disconnected'}
+          sessionId={sessionId}
           onClose={() => setSelectedDevice(null)}
         />
       )}

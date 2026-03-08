@@ -323,6 +323,7 @@
   padding: 0.5rem;
   text-align: left;
   border-bottom: 1px solid #333;
+  vertical-align: middle;
 }
 
 .signal-config-table th {
@@ -336,9 +337,7 @@
 }
 
 .signal-config-table td:first-child {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  white-space: nowrap;
 }
 
 .unit-badge {
@@ -349,6 +348,8 @@
   border-radius: 0.25rem;
   font-size: 0.625rem;
   font-weight: 500;
+  margin-left: 0.5rem;
+  vertical-align: middle;
 }
 
 .signal-config-table input,
