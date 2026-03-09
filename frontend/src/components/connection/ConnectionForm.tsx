@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { connectionsApi } from '@/api/client'
 import { ModbusTCPForm } from './ModbusTCPForm'
 import { ModbusRTUForm } from './ModbusRTUForm'
@@ -18,6 +18,26 @@ export function ConnectionForm({ sessionId, onSave, onClose }: ConnectionFormPro
   const [config, setConfig] = useState<Record<string, unknown>>({})
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  
+  // Initialize default config when connection type changes
+  const handleConnectionTypeChange = (type: ConnectionType) => {
+    setConnectionType(type)
+    // Set default config based on connection type
+    if (type === 'modbus_tcp') {
+      setConfig({ host: '192.168.1.100', port: 502, timeout: 5, keepAlive: false, maxRetries: 3, retryDelay: 1000 })
+    } else if (type === 'modbus_rtu') {
+      setConfig({ port: '/dev/ttyUSB0', baudRate: 9600, dataBits: 8, parity: 'none', stopBits: 1 })
+    }
+  }
+  
+  // Initialize default config on mount
+  useEffect(() => {
+    if (connectionType === 'modbus_tcp') {
+      setConfig({ host: '192.168.1.100', port: 502, timeout: 5, keepAlive: false, maxRetries: 3, retryDelay: 1000 })
+    } else if (connectionType === 'modbus_rtu') {
+      setConfig({ port: '/dev/ttyUSB0', baudRate: 9600, dataBits: 8, parity: 'none', stopBits: 1 })
+    }
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -78,7 +98,7 @@ export function ConnectionForm({ sessionId, onSave, onClose }: ConnectionFormPro
             <select
               id="connection-type"
               value={connectionType}
-              onChange={(e) => setConnectionType(e.target.value as ConnectionType)}
+              onChange={(e) => handleConnectionTypeChange(e.target.value as ConnectionType)}
               disabled={submitting}
             >
               <option value="modbus_tcp">Modbus TCP</option>
