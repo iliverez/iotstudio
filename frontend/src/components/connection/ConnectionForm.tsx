@@ -2,17 +2,20 @@ import { useState, useEffect } from 'react'
 import { connectionsApi } from '@/api/client'
 import { ModbusTCPForm } from './ModbusTCPForm'
 import { ModbusRTUForm } from './ModbusRTUForm'
+import type { Connection } from '@/types'
 import './ConnectionForm.css'
 
 interface ConnectionFormProps {
   sessionId: string
+  connection?: Connection
   onSave: () => void
   onClose: () => void
 }
 
 type ConnectionType = 'modbus_tcp' | 'modbus_rtu'
 
-export function ConnectionForm({ sessionId, onSave, onClose }: ConnectionFormProps) {
+export function ConnectionForm({ sessionId, connection, onSave, onClose }: ConnectionFormProps) {
+  const isEditing = !!connection
   const [connectionType, setConnectionType] = useState<ConnectionType>('modbus_tcp')
   const [name, setName] = useState('')
   const [config, setConfig] = useState<Record<string, unknown>>({})
@@ -30,14 +33,32 @@ export function ConnectionForm({ sessionId, onSave, onClose }: ConnectionFormPro
     }
   }
   
-  // Initialize default config on mount
+  // Initialize default config on mount or when editing
   useEffect(() => {
-    if (connectionType === 'modbus_tcp') {
-      setConfig({ host: '192.168.1.100', port: 502, timeout: 5, keepAlive: false, maxRetries: 3, retryDelay: 1000 })
-    } else if (connectionType === 'modbus_rtu') {
-      setConfig({ port: '/dev/ttyUSB0', baudRate: 9600, dataBits: 8, parity: 'none', stopBits: 1 })
+    if (isEditing && connection) {
+      setName(connection.name)
+      setConnectionType(connection.type)
+      try {
+        const parsedConfig = JSON.parse(connection.config)
+        setConfig(parsedConfig)
+      } catch (err) {
+        console.error('Failed to parse connection config:', err)
+        // Set default config based on connection type
+        if (connection.type === 'modbus_tcp') {
+          setConfig({ host: '192.168.1.100', port: 502, timeout: 5, keepAlive: false, maxRetries: 3, retryDelay: 1000 })
+        } else if (connection.type === 'modbus_rtu') {
+          setConfig({ port: '/dev/ttyUSB0', baudRate: 9600, dataBits: 8, parity: 'none', stopBits: 1 })
+        }
+      }
+    } else {
+      // Set default config based on connection type
+      if (connectionType === 'modbus_tcp') {
+        setConfig({ host: '192.168.1.100', port: 502, timeout: 5, keepAlive: false, maxRetries: 3, retryDelay: 1000 })
+      } else if (connectionType === 'modbus_rtu') {
+        setConfig({ port: '/dev/ttyUSB0', baudRate: 9600, dataBits: 8, parity: 'none', stopBits: 1 })
+      }
     }
-  }, [])
+  }, [isEditing, connection, connectionType])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -50,16 +71,27 @@ export function ConnectionForm({ sessionId, onSave, onClose }: ConnectionFormPro
 
     setSubmitting(true)
     try {
-      const response = await connectionsApi.create(sessionId, {
-        name: name.trim(),
-        type: connectionType,
-        config: JSON.stringify(config),
-      })
-      console.log('Connection created:', response.data)
+      if (isEditing && connection) {
+        // Update existing connection
+        const response = await connectionsApi.update(connection.id, {
+          name: name.trim(),
+          type: connectionType,
+          config: JSON.stringify(config),
+        })
+        console.log('Connection updated:', response.data)
+      } else {
+        // Create new connection
+        const response = await connectionsApi.create(sessionId, {
+          name: name.trim(),
+          type: connectionType,
+          config: JSON.stringify(config),
+        })
+        console.log('Connection created:', response.data)
+      }
       onSave()
       onClose()
     } catch (err) {
-      setError('Failed to create connection')
+      setError(isEditing ? 'Failed to update connection' : 'Failed to create connection')
     } finally {
       setSubmitting(false)
     }
@@ -73,7 +105,7 @@ export function ConnectionForm({ sessionId, onSave, onClose }: ConnectionFormPro
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content modal-large" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>Add Connection</h2>
+          <h2>{isEditing ? 'Edit Connection' : 'Add Connection'}</h2>
           <button className="btn-icon" onClick={onClose}>
             ×
           </button>
@@ -138,7 +170,7 @@ export function ConnectionForm({ sessionId, onSave, onClose }: ConnectionFormPro
               className="btn btn-primary"
               disabled={submitting}
             >
-              {submitting ? 'Creating...' : 'Create'}
+              {submitting ? (isEditing ? 'Updating...' : 'Creating...') : (isEditing ? 'Update' : 'Create')}
             </button>
           </div>
         </form>

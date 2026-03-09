@@ -183,6 +183,31 @@
   gap: 0.5rem;
 }
 
+.connection-actions-row .btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 1rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.connection-actions-row .btn-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.connection-actions-row .btn-small {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  min-width: 100px;
+  flex-shrink: 0;
+}
+
 .device-actions {
   display: flex;
   align-items: center;

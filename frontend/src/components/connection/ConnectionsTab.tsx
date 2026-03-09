@@ -21,6 +21,7 @@ export function ConnectionsTab({ sessionId, connections, onUpdate }: Connections
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null)
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null)
   const [connectingIds, setConnectingIds] = useState<Set<string>>(new Set())
+  const [editingConnection, setEditingConnection] = useState<Connection | null>(null)
 
   const loadDevicesForConnection = async (connectionId: string) => {
     try {
@@ -152,7 +153,13 @@ export function ConnectionsTab({ sessionId, connections, onUpdate }: Connections
 
       <div className="tab-header">
         <h3>Connections</h3>
-        <button className="btn btn-primary" onClick={() => setShowConnectionForm(true)}>
+        <button
+          className="btn btn-primary"
+          onClick={() => {
+            setEditingConnection(null)
+            setShowConnectionForm(true)
+          }}
+        >
           + Add Connection
         </button>
       </div>
@@ -162,7 +169,10 @@ export function ConnectionsTab({ sessionId, connections, onUpdate }: Connections
           <p>No connections yet. Add your first connection to get started.</p>
           <button
             className="btn btn-primary"
-            onClick={() => setShowConnectionForm(true)}
+            onClick={() => {
+              setEditingConnection(null)
+              setShowConnectionForm(true)
+            }}
           >
             + Add Connection
           </button>
@@ -194,6 +204,35 @@ export function ConnectionsTab({ sessionId, connections, onUpdate }: Connections
                         <span className="device-count">{devices.length} devices</span>
                       </div>
                       <div className="connection-actions-row">
+                        <button
+                          className="btn-icon"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setEditingConnection(connection)
+                            setShowConnectionForm(true)
+                          }}
+                          disabled={connection.status === 'connected'}
+                          title={connection.status === 'connected' ? 'Disconnect before editing' : 'Edit connection'}
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                          </svg>
+                        </button>
+                        <button
+                          className="btn-icon btn-danger"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleDeleteConnection(connection.id, connection.name)
+                          }}
+                          disabled={connection.status === 'connected'}
+                          title={connection.status === 'connected' ? 'Disconnect before deleting' : 'Delete connection'}
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                          </svg>
+                        </button>
                         {isConnected ? (
                           <button
                             className="btn btn-secondary btn-small"
@@ -280,15 +319,6 @@ export function ConnectionsTab({ sessionId, connections, onUpdate }: Connections
                         ))}
                       </div>
                     )}
-
-                    <div className="connection-actions">
-                      <button
-                        className="btn btn-danger"
-                        onClick={() => handleDeleteConnection(connection.id, connection.name)}
-                      >
-                        Delete Connection
-                      </button>
-                    </div>
                   </div>
                 )}
               </div>
@@ -300,9 +330,21 @@ export function ConnectionsTab({ sessionId, connections, onUpdate }: Connections
       {showConnectionForm && (
         <ConnectionForm
           sessionId={sessionId}
-          onSave={onUpdate}
+          connection={editingConnection || undefined}
+          onSave={async () => {
+            await onUpdate()
+            setShowConnectionForm(false)
+            setEditingConnection(null)
+            setConnectionsDevices(new Map())
+            if (expandedConnections.size > 0) {
+              for (const connId of expandedConnections) {
+                await loadDevicesForConnection(connId)
+              }
+            }
+          }}
           onClose={() => {
             setShowConnectionForm(false)
+            setEditingConnection(null)
             setError(null)
           }}
         />
