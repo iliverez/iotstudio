@@ -157,6 +157,20 @@ func (s *SQLiteStorage) migrate() error {
 		`INSERT OR IGNORE INTO engineering_units (id, name, symbol, description, created_at) VALUES ('eu-energy', 'Energy', 'kWh', 'Energy in kilowatt-hours', strftime('%s', 'now'))`,
 		`INSERT OR IGNORE INTO engineering_units (id, name, symbol, description, created_at) VALUES ('eu-count', 'Count', 'count', 'Count/Number', strftime('%s', 'now'))`,
 		`ALTER TABLE monitoring_sessions ADD COLUMN comments TEXT DEFAULT ''`,
+		`CREATE TABLE IF NOT EXISTS annotations (
+			id TEXT PRIMARY KEY,
+			monitoring_session_id TEXT NOT NULL,
+			type TEXT NOT NULL,
+			text TEXT NOT NULL,
+			region_start INTEGER,
+			region_end INTEGER,
+			points TEXT NOT NULL,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL,
+			FOREIGN KEY (monitoring_session_id) REFERENCES monitoring_sessions(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_annotations_session ON annotations(monitoring_session_id)`,
+		`ALTER TABLE annotations ADD COLUMN title TEXT DEFAULT ''`,
 	}
 
 	for _, migration := range migrations {
@@ -1527,6 +1541,214 @@ func (s *SQLiteStorage) Close() error {
 	return nil
 }
 
+func (s *SQLiteStorage) CreateAnnotation(ctx context.Context, annotation *models.Annotation) error {
+	pointsJSON, err := json.Marshal(annotation.Points)
+	if err != nil {
+		return fmt.Errorf("failed to marshal annotation points: %w", err)
+	}
+
+	query := `
+		INSERT INTO annotations (id, monitoring_session_id, type, title, text, region_start, region_end, points, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+
+	result, err := s.db.ExecContext(ctx, query,
+		annotation.ID,
+		annotation.MonitoringSessionID,
+		annotation.Type,
+		nullString(annotation.Title),
+		annotation.Text,
+		nullInt64(annotation.RegionStart),
+		nullInt64(annotation.RegionEnd),
+		string(pointsJSON),
+		annotation.CreatedAt.Unix(),
+		annotation.UpdatedAt.Unix(),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create annotation: %w", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("no rows inserted")
+	}
+
+	return nil
+}
+
+func (s *SQLiteStorage) GetAnnotation(ctx context.Context, id string) (*models.Annotation, error) {
+	query := `
+		SELECT id, monitoring_session_id, type, title, text, region_start, region_end, points, created_at, updated_at
+		FROM annotations
+		WHERE id = ?
+	`
+
+	var annotation models.Annotation
+	var createdAt, updatedAt int64
+	var regionStart, regionEnd sql.NullInt64
+	var title sql.NullString
+	var pointsJSON string
+
+	err := s.db.QueryRowContext(ctx, query, id).Scan(
+		&annotation.ID,
+		&annotation.MonitoringSessionID,
+		&annotation.Type,
+		&title,
+		&annotation.Text,
+		&regionStart,
+		&regionEnd,
+		&pointsJSON,
+		&createdAt,
+		&updatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("annotation not found: %s", id)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get annotation: %w", err)
+	}
+
+	if title.Valid {
+		annotation.Title = title.String
+	}
+
+	if regionStart.Valid {
+		annotation.RegionStart = regionStart.Int64
+	}
+	if regionEnd.Valid {
+		annotation.RegionEnd = regionEnd.Int64
+	}
+
+	if err := json.Unmarshal([]byte(pointsJSON), &annotation.Points); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal annotation points: %w", err)
+	}
+
+	annotation.CreatedAt = time.Unix(createdAt, 0)
+	annotation.UpdatedAt = time.Unix(updatedAt, 0)
+
+	return &annotation, nil
+}
+
+func (s *SQLiteStorage) ListAnnotationsByMonitoringSession(ctx context.Context, monitoringSessionID string) ([]*models.Annotation, error) {
+	query := `
+		SELECT id, monitoring_session_id, type, title, text, region_start, region_end, points, created_at, updated_at
+		FROM annotations
+		WHERE monitoring_session_id = ?
+		ORDER BY created_at ASC
+	`
+
+	rows, err := s.db.QueryContext(ctx, query, monitoringSessionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list annotations: %w", err)
+	}
+	defer rows.Close()
+
+	var annotations []*models.Annotation
+
+	for rows.Next() {
+		var annotation models.Annotation
+		var createdAt, updatedAt int64
+		var regionStart, regionEnd sql.NullInt64
+		var title sql.NullString
+		var pointsJSON string
+
+		if err := rows.Scan(
+			&annotation.ID,
+			&annotation.MonitoringSessionID,
+			&annotation.Type,
+			&title,
+			&annotation.Text,
+			&regionStart,
+			&regionEnd,
+			&pointsJSON,
+			&createdAt,
+			&updatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan annotation: %w", err)
+		}
+
+		if title.Valid {
+			annotation.Title = title.String
+		}
+
+		if regionStart.Valid {
+			annotation.RegionStart = regionStart.Int64
+		}
+		if regionEnd.Valid {
+			annotation.RegionEnd = regionEnd.Int64
+		}
+
+		if err := json.Unmarshal([]byte(pointsJSON), &annotation.Points); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal annotation points: %w", err)
+		}
+
+		annotation.CreatedAt = time.Unix(createdAt, 0)
+		annotation.UpdatedAt = time.Unix(updatedAt, 0)
+		annotations = append(annotations, &annotation)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating annotations: %w", err)
+	}
+
+	if annotations == nil {
+		annotations = []*models.Annotation{}
+	}
+
+	return annotations, nil
+}
+
+func (s *SQLiteStorage) UpdateAnnotation(ctx context.Context, annotation *models.Annotation) error {
+	pointsJSON, err := json.Marshal(annotation.Points)
+	if err != nil {
+		return fmt.Errorf("failed to marshal annotation points: %w", err)
+	}
+
+	query := `
+		UPDATE annotations
+		SET title = ?, text = ?, region_start = ?, region_end = ?, points = ?, updated_at = ?
+		WHERE id = ?
+	`
+
+	annotation.UpdatedAt = time.Now()
+	result, err := s.db.ExecContext(ctx, query,
+		nullString(annotation.Title),
+		annotation.Text,
+		nullInt64(annotation.RegionStart),
+		nullInt64(annotation.RegionEnd),
+		string(pointsJSON),
+		annotation.UpdatedAt.Unix(),
+		annotation.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update annotation: %w", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("annotation not found: %s", annotation.ID)
+	}
+
+	return nil
+}
+
+func (s *SQLiteStorage) DeleteAnnotation(ctx context.Context, id string) error {
+	query := `DELETE FROM annotations WHERE id = ?`
+
+	result, err := s.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete annotation: %w", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("annotation not found: %s", id)
+	}
+
+	return nil
+}
+
 func nullString(s string) sql.NullString {
 	if s == "" {
 		return sql.NullString{Valid: false}
@@ -1539,4 +1761,11 @@ func nullInt(i int) sql.NullInt64 {
 		return sql.NullInt64{Valid: false}
 	}
 	return sql.NullInt64{Int64: int64(i), Valid: true}
+}
+
+func nullInt64(i int64) sql.NullInt64 {
+	if i == 0 {
+		return sql.NullInt64{Valid: false}
+	}
+	return sql.NullInt64{Int64: i, Valid: true}
 }

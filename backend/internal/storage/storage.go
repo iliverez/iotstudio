@@ -57,6 +57,13 @@ type Storage interface {
 	UpdateEngineeringUnit(ctx context.Context, unit *models.EngineeringUnit) error
 	DeleteEngineeringUnit(ctx context.Context, id string) error
 
+	// Annotations
+	CreateAnnotation(ctx context.Context, annotation *models.Annotation) error
+	GetAnnotation(ctx context.Context, id string) (*models.Annotation, error)
+	ListAnnotationsByMonitoringSession(ctx context.Context, monitoringSessionID string) ([]*models.Annotation, error)
+	UpdateAnnotation(ctx context.Context, annotation *models.Annotation) error
+	DeleteAnnotation(ctx context.Context, id string) error
+
 	// Close closes the storage connection
 	Close() error
 }

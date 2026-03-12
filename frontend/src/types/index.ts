@@ -184,3 +184,24 @@ export interface AggregatedDataPoint {
   periodEnd: number
   data: Record<string, unknown>
 }
+
+export type AnnotationType = 'region' | 'point'
+
+export interface AnnotationPoint {
+  signalName: string
+  timestamp: number
+  value: number
+}
+
+export interface Annotation {
+  id: string
+  monitoringSessionId: string
+  type: AnnotationType
+  title?: string
+  text: string
+  regionStart?: number
+  regionEnd?: number
+  points: AnnotationPoint[]
+  createdAt: string
+  updatedAt: string
+}

@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { Session, Connection, Device, Parser, ConnectionState, DataPoint, MonitoringSession, EngineeringUnit } from '@/types'
+import type { Session, Connection, Device, Parser, ConnectionState, DataPoint, MonitoringSession, EngineeringUnit, Annotation } from '@/types'
 
 const api = axios.create({
   baseURL: '/api',
@@ -71,6 +71,15 @@ export const engineeringUnitsApi = {
   create: (data: Partial<EngineeringUnit>) => api.post<EngineeringUnit>('/engineering-units', data),
   update: (id: string, data: Partial<EngineeringUnit>) => api.put<EngineeringUnit>(`/engineering-units/${id}`, data),
   delete: (id: string) => api.delete(`/engineering-units/${id}`),
+}
+
+export const annotationsApi = {
+  listByMonitoringSession: (monitoringSessionId: string) =>
+    api.get<Annotation[]>('/annotations', { params: { monitoring_session_id: monitoringSessionId } }),
+  get: (id: string) => api.get<Annotation>(`/annotations/${id}`),
+  create: (data: Partial<Annotation>) => api.post<Annotation>('/annotations', data),
+  update: (id: string, data: Partial<Annotation>) => api.put<Annotation>(`/annotations/${id}`, data),
+  delete: (id: string) => api.delete(`/annotations/${id}`),
 }
 
 export default api

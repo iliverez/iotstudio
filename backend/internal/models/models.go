@@ -134,3 +134,29 @@ type EngineeringUnit struct {
 	Description string    `json:"description"`
 	CreatedAt   time.Time `json:"createdAt"`
 }
+
+type AnnotationType string
+
+const (
+	AnnotationTypeRegion AnnotationType = "region"
+	AnnotationTypePoint  AnnotationType = "point"
+)
+
+type Annotation struct {
+	ID                  string            `json:"id"`
+	MonitoringSessionID string            `json:"monitoringSessionId"`
+	Type                AnnotationType    `json:"type"`
+	Title               string            `json:"title,omitempty"`
+	Text                string            `json:"text"`
+	RegionStart         int64             `json:"regionStart,omitempty"`
+	RegionEnd           int64             `json:"regionEnd,omitempty"`
+	Points              []AnnotationPoint `json:"points,omitempty"`
+	CreatedAt           time.Time         `json:"createdAt"`
+	UpdatedAt           time.Time         `json:"updatedAt"`
+}
+
+type AnnotationPoint struct {
+	SignalName string  `json:"signalName"`
+	Timestamp  int64   `json:"timestamp"`
+	Value      float64 `json:"value"`
+}

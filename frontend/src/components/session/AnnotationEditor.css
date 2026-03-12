@@ -1,0 +1,163 @@
+.annotation-editor-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.annotation-editor-modal {
+  background: #1e1e2e;
+  border-radius: 8px;
+  width: 500px;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.annotation-editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #333;
+}
+
+.annotation-editor-header h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #fff;
+}
+
+.annotation-editor-form {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.annotation-editor-form .form-group {
+  margin-bottom: 16px;
+}
+
+.annotation-editor-form label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #ccc;
+}
+
+.annotation-editor-form input[type="text"],
+.annotation-editor-form input[type="number"],
+.annotation-editor-form textarea,
+.annotation-editor-form select {
+  width: 100%;
+  padding: 8px 12px;
+  background: #2a2a3a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.annotation-editor-form input:focus,
+.annotation-editor-form textarea:focus,
+.annotation-editor-form select:focus {
+  outline: none;
+  border-color: #36a2eb;
+}
+
+.annotation-editor-form textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.timestamp-input {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.timestamp-input .datetime-input {
+  flex: 1;
+  padding: 8px 12px;
+  background: #2a2a3a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.timestamp-input .datetime-input:focus {
+  outline: none;
+  border-color: #36a2eb;
+}
+
+.timestamp-ms {
+  flex: 0 0 120px;
+  font-size: 12px;
+  color: #8b949e;
+  text-align: right;
+}
+
+.points-list {
+  margin-bottom: 12px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.point-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px;
+  background: #2a2a3a;
+  border-radius: 4px;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.point-item span {
+  color: #ccc;
+}
+
+.point-input {
+  display: flex;
+  gap: 6px;
+}
+
+.point-input input {
+  flex: 1;
+  min-width: 0;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #333;
+}
+
+.error-message {
+  background: #5a1e1e;
+  border: 1px solid #a83232;
+  border-radius: 4px;
+  padding: 12px;
+  margin-bottom: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #ff6b6b;
+  font-size: 13px;
+}

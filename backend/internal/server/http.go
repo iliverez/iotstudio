@@ -71,6 +71,8 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 	mux.HandleFunc("/api/parsers/", s.handleParsers)
 	mux.HandleFunc("/api/monitoring-sessions", s.handleMonitoringSessions)
 	mux.HandleFunc("/api/monitoring-sessions/", s.handleMonitoringSessions)
+	mux.HandleFunc("/api/annotations", s.handleAnnotations)
+	mux.HandleFunc("/api/annotations/", s.handleAnnotations)
 	mux.HandleFunc("/api/engineering-units", s.handleEngineeringUnits)
 	mux.HandleFunc("/api/engineering-units/", s.handleEngineeringUnits)
 
@@ -950,4 +952,101 @@ func (s *Server) handleEngineeringUnits(w http.ResponseWriter, r *http.Request) 
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+func (s *Server) handleAnnotations(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	path := strings.TrimPrefix(r.URL.Path, "/api/annotations")
+
+	query := r.URL.Query()
+	monitoringSessionID := query.Get("monitoring_session_id")
+
+	// List annotations by monitoring session
+	if r.Method == "GET" && monitoringSessionID != "" {
+		annotations, err := s.storage.ListAnnotationsByMonitoringSession(r.Context(), monitoringSessionID)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(annotations)
+		return
+	}
+
+	// Get annotation by ID
+	if r.Method == "GET" && strings.HasPrefix(path, "/") {
+		id := strings.TrimPrefix(path, "/")
+		annotation, err := s.storage.GetAnnotation(r.Context(), id)
+		if err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Annotation not found"})
+			return
+		}
+		json.NewEncoder(w).Encode(annotation)
+		return
+	}
+
+	// Create annotation
+	if r.Method == "POST" && (path == "" || path == "/") {
+		var annotation models.Annotation
+		if err := json.NewDecoder(r.Body).Decode(&annotation); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request body"})
+			return
+		}
+
+		annotation.ID = uuid.New().String()
+		annotation.CreatedAt = time.Now()
+		annotation.UpdatedAt = time.Now()
+
+		if err := s.storage.CreateAnnotation(r.Context(), &annotation); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(annotation)
+		return
+	}
+
+	// Update annotation
+	if r.Method == "PUT" && strings.HasPrefix(path, "/") {
+		id := strings.TrimPrefix(path, "/")
+		var annotation models.Annotation
+		if err := json.NewDecoder(r.Body).Decode(&annotation); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request body"})
+			return
+		}
+
+		annotation.ID = id
+
+		if err := s.storage.UpdateAnnotation(r.Context(), &annotation); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+
+		json.NewEncoder(w).Encode(annotation)
+		return
+	}
+
+	// Delete annotation
+	if r.Method == "DELETE" && strings.HasPrefix(path, "/") {
+		id := strings.TrimPrefix(path, "/")
+
+		if err := s.storage.DeleteAnnotation(r.Context(), id); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	w.WriteHeader(http.StatusNotFound)
+	json.NewEncoder(w).Encode(map[string]string{"error": "Not found"})
 }

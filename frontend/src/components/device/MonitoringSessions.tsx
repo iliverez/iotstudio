@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { monitoringSessionsApi, devicesApi, engineeringUnitsApi } from '@/api/client'
-import type { MonitoringSession, Device, EngineeringUnit } from '@/types'
+import { monitoringSessionsApi, devicesApi, engineeringUnitsApi, annotationsApi } from '@/api/client'
+import type { MonitoringSession, Device, EngineeringUnit, Annotation } from '@/types'
+import { AnnotationEditor } from '../session/AnnotationEditor'
 import './MonitoringSessions.css'
 
 // Chart.js imports
@@ -51,11 +52,39 @@ export function MonitoringSessions({ onClose, onViewSession }: MonitoringSession
   const chartRef = useRef<any>(null)
   const [leftYAxisSignal, setLeftYAxisSignal] = useState<string>('')
   const [rightYAxisSignal, setRightYAxisSignal] = useState<string>('')
+  const [annotations, setAnnotations] = useState<Annotation[]>([])
+  const [showAnnotations] = useState(true)
+  const [editingAnnotation, setEditingAnnotation] = useState<Annotation | null>(null)
+  const [showAnnotationEditor, setShowAnnotationEditor] = useState(false)
+  const [selectedAnnotation, setSelectedAnnotation] = useState<string | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragStartX, setDragStartX] = useState<number | null>(null)
+  const [dragCurrentX, setDragCurrentX] = useState<number | null>(null)
+  const [selectedRegion, setSelectedRegion] = useState<{ start: number; end: number } | null>(null)
+  const [visibleAnnotations, setVisibleAnnotations] = useState<Set<string>>(new Set())
+  const [hoveredAnnotation, setHoveredAnnotation] = useState<string | null>(null)
+  const [zoomKey, setZoomKey] = useState(0)
+  const chartContainerRef = useRef<HTMLDivElement>(null)
+  const annotationListRef = useRef<HTMLDivElement>(null)
+  const annotationItemRefs = useRef<Map<string, HTMLDivElement>>(new Map())
 
   useEffect(() => {
     loadSessions()
     loadEngineeringUnits()
   }, [])
+
+  useEffect(() => {
+    if (!selectedAnnotation) return
+    
+    const timer = setTimeout(() => {
+      const element = annotationItemRefs.current.get(selectedAnnotation)
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    }, 100)
+    
+    return () => clearTimeout(timer)
+  }, [selectedAnnotation])
 
   const loadEngineeringUnits = async () => {
     try {
@@ -116,6 +145,16 @@ export function MonitoringSessions({ onClose, onViewSession }: MonitoringSession
       onViewSession(session)
     }
     setSelectedSession(session)
+    loadAnnotations(session.id)
+  }
+
+  const loadAnnotations = async (sessionId: string) => {
+    try {
+      const response = await annotationsApi.listByMonitoringSession(sessionId)
+      setAnnotations(response.data)
+    } catch (err: any) {
+      console.error('Failed to load annotations:', err)
+    }
   }
 
   const resetZoom = () => {
@@ -123,6 +162,148 @@ export function MonitoringSessions({ onClose, onViewSession }: MonitoringSession
       chartRef.current.resetZoom()
     }
   }
+
+  const handleEditAnnotation = (annotation: Annotation) => {
+    setEditingAnnotation(annotation)
+    setShowAnnotationEditor(true)
+  }
+
+  const handleDeleteAnnotation = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this annotation?')) {
+      return
+    }
+
+    try {
+      await annotationsApi.delete(id)
+      setAnnotations(prev => prev.filter(a => a.id !== id))
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete annotation')
+    }
+  }
+
+  const handleAnnotationSave = (annotation: Annotation) => {
+    if (editingAnnotation) {
+      setAnnotations(prev => prev.map(a => a.id === annotation.id ? annotation : a))
+    } else {
+      setAnnotations(prev => [...prev, annotation])
+    }
+  }
+
+  const handleSelectAnnotation = (id: string) => {
+    const newId = selectedAnnotation === id ? null : id
+    setSelectedAnnotation(newId)
+    
+    if (newId) {
+      setTimeout(() => {
+        const element = annotationItemRefs.current.get(id)
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+      }, 100)
+    }
+  }
+
+  const toggleAnnotationVisibility = (id: string) => {
+    setVisibleAnnotations(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(id)) {
+        newSet.delete(id)
+      } else {
+        newSet.add(id)
+      }
+      return newSet
+    })
+  }
+
+  const toggleAllAnnotations = () => {
+    if (visibleAnnotations.size === annotations.length) {
+      setVisibleAnnotations(new Set())
+    } else {
+      setVisibleAnnotations(new Set(annotations.map(a => a.id)))
+    }
+  }
+
+  const handleChartMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.metaKey || e.ctrlKey) {
+      const rect = e.currentTarget.getBoundingClientRect()
+      const x = e.clientX - rect.left
+      setIsDragging(true)
+      setDragStartX(x)
+      setDragCurrentX(x)
+      e.preventDefault()
+    }
+  }
+
+  const handleChartMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (isDragging) {
+      const rect = e.currentTarget.getBoundingClientRect()
+      const x = e.clientX - rect.left
+      setDragCurrentX(x)
+    }
+  }
+
+  const handleChartMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (isDragging && dragStartX !== null && dragCurrentX !== null && selectedSession && chartRef.current) {
+      const rect = e.currentTarget.getBoundingClientRect()
+      const startX = Math.min(dragStartX, dragCurrentX)
+      const endX = Math.max(dragStartX, dragCurrentX)
+      const duration = endX - startX
+
+      if (duration > 10) {
+        const chart = chartRef.current
+        const scale = chart.scales.x
+
+        const chartCanvas = chart.canvas
+        const chartRect = chartCanvas.getBoundingClientRect()
+        const chartLeft = chartRect.left - rect.left
+
+        const startXRelativeToChart = startX - chartLeft
+        const endXRelativeToChart = endX - chartLeft
+
+        const regionStart = Math.round(scale.getValueForPixel(startXRelativeToChart))
+        const regionEnd = Math.round(scale.getValueForPixel(endXRelativeToChart))
+
+        setEditingAnnotation(null)
+        setSelectedRegion({ start: regionStart, end: regionEnd })
+        setShowAnnotationEditor(true)
+      }
+    }
+
+    setIsDragging(false)
+    setDragStartX(null)
+    setDragCurrentX(null)
+  }
+
+  const handleChartDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!selectedSession || !chartRef.current) return
+
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = e.clientX - rect.left
+
+    const chart = chartRef.current
+    const scale = chart.scales.x
+
+    const chartCanvas = chart.canvas
+    const chartRect = chartCanvas.getBoundingClientRect()
+    const chartLeft = chartRect.left - rect.left
+    const xRelativeToChart = x - chartLeft
+
+    const timestamp = Math.round(scale.getValueForPixel(xRelativeToChart))
+
+    const nearestPoint = selectedSession.dataPoints
+      .map(p => ({ ...p, distance: Math.abs(p.timestamp - timestamp) }))
+      .reduce((nearest, current) => (current.distance < nearest.distance ? current : nearest))
+
+    setEditingAnnotation(null)
+    setSelectedPoint({
+      signalName: selectedSession.signalConfigs[0]?.name || '',
+      timestamp: nearestPoint.timestamp,
+      value: Number(nearestPoint.data[selectedSession.signalConfigs[0]?.name] || 0),
+    })
+    setShowAnnotationEditor(true)
+  }
+
+  const [selectedPoint, setSelectedPoint] = useState<{ signalName: string; timestamp: number; value: number } | null>(null)
 
   const signalUnitsMap = useMemo(() => {
     if (!selectedSession) return {}
@@ -307,11 +488,38 @@ export function MonitoringSessions({ onClose, onViewSession }: MonitoringSession
           borderWidth: 1,
         },
         zoom: {
-          pan: { enabled: true, mode: 'x' as const },
+          pan: {
+            enabled: true,
+            mode: 'x' as const,
+            onPanStart: (context: any) => {
+              if (context.event?.metaKey || context.event?.ctrlKey) {
+                return false
+              }
+              return true
+            },
+            onPan: ({ chart }: any) => {
+              setTimeout(() => {
+                chart.update('none')
+                setZoomKey(k => k + 1)
+              }, 10)
+            },
+          },
           zoom: {
             wheel: { enabled: true },
             pinch: { enabled: true },
             mode: 'x' as const,
+            onZoomStart: (context: any) => {
+              if (context.event?.metaKey || context.event?.ctrlKey) {
+                return false
+              }
+              return true
+            },
+            onZoom: ({ chart }: any) => {
+              setTimeout(() => {
+                chart.update('none')
+                setZoomKey(k => k + 1)
+              }, 10)
+            },
           },
         },
       },
@@ -432,9 +640,11 @@ export function MonitoringSessions({ onClose, onViewSession }: MonitoringSession
                   <div className="view-controls">
                     <div className="controls-left">
                       {viewMode === 'graph' && (
-                        <button className="btn btn-small" onClick={resetZoom}>
-                          Reset Zoom
-                        </button>
+                        <>
+                          <button className="btn btn-small" onClick={resetZoom}>
+                            Reset Zoom
+                          </button>
+                        </>
                       )}
                     </div>
                     <div className="axis-controls">
@@ -486,16 +696,212 @@ export function MonitoringSessions({ onClose, onViewSession }: MonitoringSession
                   </div>
 
                   {viewMode === 'graph' ? (
-                    <div className="session-chart">
-                      {chartData && (
-                        <Line 
-                          ref={chartRef}
-                          data={chartData} 
-                          options={chartOptions}
-                          key={selectedSession.id}
-                        />
+                    <>
+                      <div className="chart-hint">
+                        💡 <kbd>Cmd</kbd>/<kbd>Ctrl</kbd> + drag = region, <kbd>Double-click</kbd> = point
+                      </div>
+                      <div
+                        ref={chartContainerRef}
+                        className="session-chart"
+                        onMouseDown={handleChartMouseDown}
+                        onMouseMove={handleChartMouseMove}
+                        onMouseUp={handleChartMouseUp}
+                        onDoubleClick={handleChartDoubleClick}
+                        onMouseLeave={() => {
+                          setIsDragging(false)
+                          setDragStartX(null)
+                          setDragCurrentX(null)
+                          setHoveredAnnotation(null)
+                        }}
+                      >
+                        {chartData && (
+                          <Line
+                            ref={chartRef}
+                            data={chartData}
+                            options={chartOptions}
+                            key={selectedSession.id}
+                          />
+                        )}
+                        {showAnnotations && (
+                          <div className="annotation-markers" key={zoomKey}>
+                            {annotations
+                              .filter(a => a.type === 'region' && a.regionStart && a.regionEnd && visibleAnnotations.has(a.id))
+                              .map(annotation => {
+                                if (!selectedSession || !chartData || !chartRef.current) return null
+                                const chart = chartRef.current
+                                const scale = chart.scales.x
+
+                                const startXPixel = scale.getPixelForValue(annotation.regionStart!)
+                                const endXPixel = scale.getPixelForValue(annotation.regionEnd!)
+
+                                return (
+                                  <div
+                                    key={annotation.id}
+                                    className={`annotation-region ${selectedAnnotation === annotation.id ? 'selected' : ''}`}
+                                    style={{
+                                      left: `${startXPixel}px`,
+                                      width: `${endXPixel - startXPixel}px`,
+                                    }}
+                                  >
+                                    <div
+                                      className="annotation-region-clickable"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                handleSelectAnnotation(annotation.id)
+              }}
+                                      onMouseEnter={() => setHoveredAnnotation(annotation.id)}
+                                      onMouseLeave={() => setHoveredAnnotation(null)}
+                                    >
+                                      {(hoveredAnnotation === annotation.id || selectedAnnotation === annotation.id) && (
+                                        <div className="annotation-tooltip">
+                                          <div className="annotation-tooltip-title">
+                                            {annotation.title || (annotation.type === 'region' ? 'Region' : 'Point')}
+                                          </div>
+                                          {annotation.text && (
+                                            <div className="annotation-tooltip-text">{annotation.text}</div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            {annotations
+                              .filter(a => a.type === 'point' && a.points.length > 0 && visibleAnnotations.has(a.id))
+                              .map(annotation => (
+                                annotation.points.map((point, idx) => {
+                                  if (!selectedSession || !chartData || !chartRef.current) return null
+                                  const chart = chartRef.current
+                                  const scale = chart.scales.x
+
+                                  const xPosPixel = scale.getPixelForValue(point.timestamp)
+                                  return (
+                                    <div
+                                      key={`${annotation.id}-${idx}`}
+                                      className={`annotation-point-marker ${selectedAnnotation === annotation.id ? 'selected' : ''}`}
+                                      style={{
+                                        left: `${xPosPixel}px`,
+                                      }}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleSelectAnnotation(annotation.id)
+                                      }}
+                                    >
+                                      <div className="annotation-point-tooltip">
+                                        <div className="annotation-tooltip-title">
+                                          {annotation.title || 'Point'}
+                                        </div>
+                                        <div className="annotation-tooltip-signal">
+                                          {point.signalName}: {point.value}
+                                        </div>
+                                        {annotation.text && (
+                                          <div className="annotation-tooltip-text">{annotation.text}</div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )
+                                })
+                              ))}
+                            {isDragging && dragStartX !== null && dragCurrentX !== null && selectedSession && (
+                              <div
+                                className="drag-selection"
+                                style={{
+                                  left: `${Math.min(dragStartX, dragCurrentX)}px`,
+                                  width: `${Math.abs(dragCurrentX - dragStartX)}px`,
+                                }}
+                              />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      {showAnnotations && (
+                        <div className="annotation-list" ref={annotationListRef}>
+                          <div className="annotation-list-header">
+                            <h4>Annotations ({annotations.length})</h4>
+                            {annotations.length > 0 && (
+                              <button
+                                className="btn-link btn-small"
+                                onClick={toggleAllAnnotations}
+                                title={visibleAnnotations.size === annotations.length ? 'Hide all annotations' : 'Show all annotations'}
+                              >
+                                {visibleAnnotations.size === annotations.length ? 'Hide All' : 'Show All'}
+                              </button>
+                            )}
+                          </div>
+                          {annotations.length === 0 ? (
+                            <p className="empty-annotations">No annotations yet. Use Cmd/Ctrl+drag to create a region or double-click to create a point.</p>
+                          ) : (
+                            <div className="annotation-items">
+                              {annotations.map(annotation => (
+                                <div
+                                  key={annotation.id}
+                                  ref={(el) => {
+                                    if (el) annotationItemRefs.current.set(annotation.id, el)
+                                    else annotationItemRefs.current.delete(annotation.id)
+                                  }}
+                                  className={`annotation-item ${selectedAnnotation === annotation.id ? 'selected' : ''} ${!visibleAnnotations.has(annotation.id) ? 'hidden' : ''}`}
+                                  onClick={() => handleSelectAnnotation(annotation.id)}
+                                >
+                                  <div className="annotation-item-header">
+                                    <div className="annotation-type-row">
+                                      {annotation.title && (
+                                        <span className="annotation-title-inline">
+                                          {annotation.title}
+                                        </span>
+                                      )}
+                                      <span className="annotation-type-yellow">
+                                        {annotation.type === 'region' ? 'Region' : 'Point'}
+                                      </span>
+                                    </div>
+                                    <div className="annotation-actions">
+                                      <button
+                                        className="btn-icon btn-small"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          toggleAnnotationVisibility(annotation.id)
+                                        }}
+                                        title={visibleAnnotations.has(annotation.id) ? 'Hide on chart' : 'Show on chart'}
+                                      >
+                                        {visibleAnnotations.has(annotation.id) ? '👁' : '👁‍🗨'}
+                                      </button>
+                                      <button
+                                        className="btn-icon btn-small"
+                                        onClick={(e) => { e.stopPropagation(); handleEditAnnotation(annotation); }}
+                                        title="Edit"
+                                      >
+                                        ✏
+                                      </button>
+                                      <button
+                                        className="btn-icon btn-small btn-danger"
+                                        onClick={(e) => { e.stopPropagation(); handleDeleteAnnotation(annotation.id); }}
+                                        title="Delete"
+                                      >
+                                        🗑
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <div className="annotation-text">{annotation.text}</div>
+                                  {annotation.type === 'region' && (
+                                    <div className="annotation-time">
+                                      {new Date(annotation.regionStart || 0).toLocaleTimeString()} - {new Date(annotation.regionEnd || 0).toLocaleTimeString()}
+                                    </div>
+                                  )}
+                                  {annotation.type === 'point' && annotation.points.length > 0 && (
+                                    <div className="annotation-points">
+                                      {annotation.points.map((point, i) => (
+                                        <span key={i} className="annotation-point">
+                                          {point.signalName}: {point.value}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       )}
-                    </div>
+                    </>
                   ) : (
                     <div className="session-table">
                       <table>
@@ -527,6 +933,22 @@ export function MonitoringSessions({ onClose, onViewSession }: MonitoringSession
                 </div>
               )}
             </div>
+          )}
+
+          {showAnnotationEditor && selectedSession && (
+            <AnnotationEditor
+              monitoringSessionId={selectedSession.id}
+              editingAnnotation={editingAnnotation}
+              annotationType={selectedRegion ? 'region' : selectedPoint ? 'point' : undefined}
+              initialRegion={selectedRegion || undefined}
+              initialPoints={selectedPoint ? [selectedPoint] : undefined}
+              onClose={() => {
+                setShowAnnotationEditor(false)
+                setSelectedRegion(null)
+                setSelectedPoint(null)
+              }}
+              onSave={handleAnnotationSave}
+            />
           )}
         </div>
       </div>

@@ -222,3 +222,348 @@
 .empty-state p {
   margin: 0.5rem 0;
 }
+
+.annotation-markers {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 40px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.annotation-region {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background-color: rgba(255, 241, 118, 0.25);
+  border-left: 2px solid rgba(255, 241, 118, 0.6);
+  border-right: 2px solid rgba(255, 241, 118, 0.6);
+  cursor: pointer;
+  pointer-events: none;
+  transition: background-color 0.2s;
+  z-index: 5;
+}
+
+.annotation-region:hover {
+  z-index: 6;
+}
+
+.annotation-region-clickable {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 15px;
+  cursor: pointer;
+  pointer-events: auto;
+  z-index: 10;
+}
+
+.annotation-region .annotation-tooltip {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(0, 0, 0, 0.9);
+  border: 1px solid #ffc107;
+  border-radius: 4px;
+  padding: 8px 12px;
+  white-space: nowrap;
+  z-index: 100;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+  pointer-events: none;
+  max-width: 250px;
+}
+
+.annotation-region:hover .annotation-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0.5s;
+}
+
+.annotation-tooltip-title {
+  color: #ffc107;
+  font-weight: 600;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.annotation-tooltip-text {
+  color: #e6edf3;
+  font-size: 11px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.annotation-region:hover {
+  background-color: rgba(255, 241, 118, 0.35);
+}
+
+.annotation-region.selected {
+  background-color: rgba(255, 241, 118, 0.35);
+  border-left: 2px solid rgba(255, 241, 118, 0.8);
+  border-right: 2px solid rgba(255, 241, 118, 0.8);
+}
+
+.annotation-region.selected {
+  background-color: rgba(255, 193, 7, 0.35);
+}
+
+.annotation-list {
+  margin-top: 1rem;
+  padding: 1rem;
+  background-color: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 0.375rem;
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.annotation-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.annotation-list h4 {
+  margin: 0;
+  font-size: 0.875rem;
+  color: #fff;
+}
+
+.annotation-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.annotation-item {
+  padding: 0.75rem;
+  background-color: #21262d;
+  border: 1px solid #30363d;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.annotation-item:hover {
+  background-color: #2a2a3a;
+}
+
+.annotation-item.selected {
+  border-color: #ffc107;
+  background-color: #2a2a3a;
+}
+
+.annotation-item.hidden {
+  opacity: 0.5;
+}
+
+.annotation-point-marker {
+  position: absolute;
+  top: 50%;
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  margin-top: -7px;
+  background-color: #ff6384;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  cursor: pointer;
+  pointer-events: none;
+  transition: all 0.2s;
+  z-index: 10;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.annotation-point-marker:hover {
+  background-color: #ff9f40;
+  transform: scale(1.3);
+}
+
+.annotation-point-marker.selected {
+  background-color: #ff9f40;
+  border-color: #ffc107;
+  box-shadow: 0 0 0 3px rgba(255, 193, 7, 0.3), 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.annotation-point-marker .annotation-point-tooltip {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 8px;
+  background-color: rgba(0, 0, 0, 0.9);
+  border: 1px solid #ff6384;
+  border-radius: 4px;
+  padding: 8px 12px;
+  white-space: nowrap;
+  z-index: 100;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+  pointer-events: none;
+}
+
+.annotation-point-marker:hover .annotation-point-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0.5s;
+}
+
+.annotation-tooltip-signal {
+  color: #ff6384;
+  font-size: 11px;
+  font-weight: 500;
+  margin: 4px 0;
+}
+
+.annotation-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.annotation-type-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.annotation-title-inline {
+  font-size: 0.875rem;
+  color: #e6edf3;
+  font-weight: 500;
+}
+
+.annotation-type-yellow {
+  font-size: 0.75rem;
+  color: #ffc107;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.annotation-type-icon {
+  font-size: 0.75rem;
+}
+
+.annotation-actions {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.annotation-actions .btn-icon {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem;
+  line-height: 1;
+  transition: transform 0.1s;
+}
+
+.annotation-actions .btn-icon:hover {
+  transform: scale(1.1);
+}
+
+.annotation-text {
+  font-size: 0.8125rem;
+  color: #e6edf3;
+  line-height: 1.4;
+}
+
+.annotation-time {
+  margin-top: 0.5rem;
+  font-size: 0.71875rem;
+  color: #8b949e;
+}
+
+.annotation-points {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.annotation-point {
+  font-size: 0.71875rem;
+  color: #8b949e;
+  background-color: #30363d;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.125rem;
+}
+
+.empty-annotations {
+  text-align: center;
+  padding: 1rem;
+  color: #8b949e;
+  font-size: 0.8125rem;
+}
+
+.drag-selection {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background-color: rgba(54, 162, 235, 0.3);
+  border: 2px dashed #36a2eb;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #36a2eb;
+  font-size: 0.75rem;
+  padding: 0;
+  text-decoration: none;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
+  color: #4bc0c0;
+}
+
+.btn-small {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.session-chart {
+  position: relative;
+  cursor: default;
+}
+
+.session-chart:active {
+  user-select: none;
+}
+
+.chart-hint {
+  text-align: center;
+  padding: 0.5rem;
+  background-color: #1e2329;
+  border: 1px solid #30363d;
+  border-radius: 0.375rem;
+  margin-bottom: 1rem;
+  font-size: 0.8125rem;
+  color: #8b949e;
+}
+
+.chart-hint kbd {
+  background-color: #21262d;
+  border: 1px solid #30363d;
+  border-radius: 0.25rem;
+  padding: 0.125rem 0.375rem;
+  font-family: inherit;
+  font-size: 0.75rem;
+  color: #e6edf3;
+}
