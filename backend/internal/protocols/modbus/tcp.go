@@ -496,9 +496,8 @@ func (h *ModbusTCPHandler) sendRequest(ctx context.Context, unitID uint8, pdu []
 	n, err := h.conn.Write(frame)
 	if err != nil {
 		h.metrics.ErrorCount++
-		// Connection might be dead, close it
-		h.conn.Close()
-		h.conn = nil
+		// Don't close the connection on write errors - let the next read fail to trigger reconnect
+		// This allows connection reuse for transient errors
 		return nil, fmt.Errorf("failed to write request: %w", err)
 	}
 

@@ -3,6 +3,8 @@ import { connectionsApi, devicesApi } from '@/api/client'
 import { ConnectionForm } from './ConnectionForm'
 import { DeviceForm } from '../device/DeviceForm'
 import { DeviceMonitor } from '../device/DeviceMonitor'
+import { DeviceMonitorRunner } from '../device/DeviceMonitorRunner'
+import { useDashboardStore } from '@/stores/dashboardStore'
 import type { Connection, Device } from '@/types'
 import './ConnectionsTab.css'
 
@@ -22,6 +24,7 @@ export function ConnectionsTab({ sessionId, connections, onUpdate }: Connections
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null)
   const [connectingIds, setConnectingIds] = useState<Set<string>>(new Set())
   const [editingConnection, setEditingConnection] = useState<Connection | null>(null)
+  const activeDeviceMonitorings = useDashboardStore((state) => state.activeDeviceMonitorings)
 
   const loadDevicesForConnection = async (connectionId: string) => {
     try {
@@ -367,6 +370,23 @@ export function ConnectionsTab({ sessionId, connections, onUpdate }: Connections
           onClose={() => setSelectedDevice(null)}
         />
       )}
+
+      {/* Background monitoring runners for each device - only one per device */}
+      {connectionsList.map((connection) => {
+        const devices = connectionsDevices.get(connection.id) || []
+        return devices.map((device) => {
+          const monitoring = activeDeviceMonitorings.get(device.id)
+          if (!monitoring?.monitoring) return null
+          return (
+            <DeviceMonitorRunner
+              key={device.id}
+              deviceId={device.id}
+              sessionId={sessionId}
+              connectionStatus={connection.status}
+            />
+          )
+        })
+      })}
     </div>
   )
 }
