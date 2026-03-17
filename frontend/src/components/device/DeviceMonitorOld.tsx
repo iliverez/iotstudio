@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { devicesApi, parsersApi, engineeringUnitsApi, sessionsApi } from '@/api/client'
+import { devicesApi, parsersApi, monitoringSessionsApi, engineeringUnitsApi, sessionsApi } from '@/api/client'
 import { useDashboardStore } from '@/stores/dashboardStore'
-import type { Device, Parser, ModbusRegister, SignalConfig, AggregationType, RawDataPoint, AggregatedDataPoint, EngineeringUnit, Annotation } from '@/types'
-import { AnnotationEditor } from '../session/AnnotationEditor'
+import type { Device, Parser, ModbusRegister, SignalConfig, AggregationType, RawDataPoint, AggregatedDataPoint, EngineeringUnit } from '@/types'
 import './DeviceMonitor.css'
 
 // Chart.js imports
@@ -47,9 +46,9 @@ function aggregateValue(samples: RawDataPoint[], signalName: string, aggregation
   if (samples.length === 0) return null
   
   const values = samples
-    .map((s: RawDataPoint) => s.data[signalName])
-    .filter((v: unknown) => v !== null && v !== undefined && typeof v === 'number')
-    .map((v: unknown) => Number(v))
+    .map(s => s.data[signalName])
+    .filter(v => v !== null && v !== undefined && typeof v === 'number')
+    .map(v => Number(v))
   
   if (values.length === 0) return null
   
@@ -69,45 +68,33 @@ function aggregateValue(samples: RawDataPoint[], signalName: string, aggregation
 
 export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: DeviceMonitorProps) {
   const updateSession = useDashboardStore((state) => state.updateSession)
-  const startDeviceMonitoring = useDashboardStore((state) => state.startDeviceMonitoring)
-  const updateDeviceMonitoring = useDashboardStore((state) => state.updateDeviceMonitoring)
-  const getDeviceMonitoring = useDashboardStore((state) => state.getDeviceMonitoring)
-  
   const [parser, setParser] = useState<Parser | null>(null)
   const [loading, setLoading] = useState(true)
+  const [monitoring, setMonitoring] = useState(false)
   const [samplingPeriod, setSamplingPeriod] = useState(1000) // Default 1 second
   const [loggingPeriod, setLoggingPeriod] = useState(5000) // Default 5 seconds
   const [defaultAggregation, setDefaultAggregation] = useState<AggregationType>('average')
+  const [aggregatedDataPoints, setAggregatedDataPoints] = useState<AggregatedDataPoint[]>([])
+  const [signalConfigs, setSignalConfigs] = useState<SignalConfig[]>([])
+  const [currentValues, setCurrentValues] = useState<Record<string, unknown>>({})
   const [error, setError] = useState<string | null>(null)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
   const [viewMode, setViewMode] = useState<'table' | 'graph'>('graph')
   const [showConfigPanel, setShowConfigPanel] = useState(false)
-  const [showSignalSelection, setShowSignalSelection] = useState(false)
+  const [sessionName, setSessionName] = useState('')
+  const [showSaveDialog, setShowSaveDialog] = useState(false)
+  const [savingSession, setSavingSession] = useState(false)
   const [engineeringUnits, setEngineeringUnits] = useState<EngineeringUnit[]>([])
-  const [leftAxisSignal, setLeftAxisSignal] = useState<string>('')
+  const [sessionComments, setSessionComments] = useState('')
   const [rightAxisSignal, setRightAxisSignal] = useState<string>('')
-  const showAnnotations = true
-  const [annotations, setAnnotations] = useState<Annotation[]>([])
-  const [showAnnotationEditor, setShowAnnotationEditor] = useState(false)
-  const [editingAnnotation, setEditingAnnotation] = useState<Annotation | null>(null)
-  const [selectedAnnotation, setSelectedAnnotation] = useState<string | null>(null)
-  const chartContainerRef = useRef<HTMLDivElement>(null)
-  const annotationListRef = useRef<HTMLDivElement>(null)
-  const annotationItemRefs = useRef<Map<string, HTMLDivElement>>(new Map())
   
   // Internal state for aggregation
   const pendingSamples = useRef<RawDataPoint[]>([])
   const lastPeriodEnd = useRef<number>(0)
+  
   const chartRef = useRef<ChartJS<'line'>>(null)
-  const readIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  // Get active monitoring state from store
-  const activeMonitoring = getDeviceMonitoring(device.id)
-  const monitoring = activeMonitoring?.monitoring || false
-  const aggregatedDataPoints = activeMonitoring?.aggregatedDataPoints || []
-  const signalConfigs = activeMonitoring?.signalConfigs || []
-  const currentValues = activeMonitoring?.currentValues || {}
-  const monitorEndTime = activeMonitoring?.endTime
+  const monitorStartTime = useRef<number>(0)
+  const monitorEndTime = useRef<number>(0)
 
   const isConnected = connectionStatus === 'connected'
 
@@ -117,6 +104,49 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
         try {
           const response = await parsersApi.get(device.parserId)
           setParser(response.data)
+          
+          // Initialize signal configs based on parser fields/registers
+          const registers = response.data.type === 'modbus' && response.data.modbusRegisters 
+            ? response.data.modbusRegisters 
+            : []
+          const fields = response.data.type === 'visual' ? response.data.fields : []
+          
+          const configs: SignalConfig[] = []
+          
+          if (registers.length > 0) {
+            registers.forEach((reg: ModbusRegister) => {
+              configs.push({
+                name: reg.name,
+                loggingPeriod: 5000,
+                aggregation: 'average',
+                engineeringUnitId: reg.engineeringUnitId,
+              })
+            })
+          } else if (fields.length > 0) {
+            fields.forEach((field: { name: string; engineeringUnitId?: string }) => {
+              configs.push({
+                name: field.name,
+                loggingPeriod: 5000,
+                aggregation: 'average',
+                engineeringUnitId: field.engineeringUnitId,
+              })
+            })
+          }
+          
+          setSignalConfigs(configs)
+          
+          // Auto-select signals with different units for right axis
+          if (configs.length > 1) {
+            const units = new Set(configs.map(c => c.engineeringUnitId).filter(Boolean))
+            if (units.size > 1) {
+              // Find first signal with different unit than first signal
+              const firstUnit = configs[0].engineeringUnitId
+              const rightAxisSignal = configs.find(c => c.engineeringUnitId && c.engineeringUnitId !== firstUnit)
+              if (rightAxisSignal) {
+                setRightAxisSignal(rightAxisSignal.name)
+              }
+            }
+          }
         } catch (err) {
           console.error('Failed to load parser:', err)
         }
@@ -125,8 +155,7 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
     }
     loadParser()
     loadEngineeringUnits()
-    loadAnnotations()
-  }, [device.parserId, device.id])
+  }, [device.parserId])
 
   const loadEngineeringUnits = async () => {
     try {
@@ -136,96 +165,6 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
       console.error('Failed to load engineering units:', err)
     }
   }
-
-  const loadAnnotations = async () => {
-    if (!monitorEndTime) return // Only load annotations after monitoring stops
-    try {
-      // Note: Need to create monitoring session first to get annotations
-      // For now, we'll store annotations in memory
-    } catch (err) {
-      console.error('Failed to load annotations:', err)
-    }
-  }
-
-  // Initialize or restore monitoring state
-  useEffect(() => {
-    if (parser) {
-      const existingMonitoring = getDeviceMonitoring(device.id)
-      
-      if (!existingMonitoring) {
-        // Initialize monitoring state if it doesn't exist
-        const registers = parser.type === 'modbus' && parser.modbusRegisters 
-          ? parser.modbusRegisters 
-          : []
-        const fields = parser.type === 'visual' ? parser.fields : []
-        
-        const configs: SignalConfig[] = []
-        
-        if (registers.length > 0) {
-          registers.forEach((reg: ModbusRegister) => {
-            configs.push({
-              name: reg.name,
-              loggingPeriod: 5000,
-              aggregation: 'average',
-              engineeringUnitId: reg.engineeringUnitId,
-            })
-          })
-        } else if (fields.length > 0) {
-          fields.forEach((field: { name: string; engineeringUnitId?: string }) => {
-            configs.push({
-              name: field.name,
-              loggingPeriod: 5000,
-              aggregation: 'average',
-              engineeringUnitId: field.engineeringUnitId,
-            })
-          })
-        }
-        
-        // Auto-select signals with different units for right axis
-        if (configs.length > 1) {
-          const units = new Set(configs.map(c => c.engineeringUnitId).filter(Boolean))
-          if (units.size > 1) {
-            const firstUnit = configs[0].engineeringUnitId
-            const rightAxisSignal = configs.find(c => c.engineeringUnitId && c.engineeringUnitId !== firstUnit)
-            if (rightAxisSignal) {
-              setRightAxisSignal(rightAxisSignal.name)
-            }
-          }
-        }
-        
-        startDeviceMonitoring({
-          deviceId: device.id,
-          sessionId,
-          monitoring: false,
-          startTime: 0,
-          samplingPeriod,
-          loggingPeriod,
-          defaultAggregation,
-          signalConfigs: configs,
-          aggregatedDataPoints: [],
-          currentValues: {},
-          lastUpdate: null,
-          leftAxisSignal: '',
-          rightAxisSignal: '',
-        })
-      }
-    }
-  }, [parser, device.id, sessionId, samplingPeriod, loggingPeriod, defaultAggregation, startDeviceMonitoring, getDeviceMonitoring])
-
-  // Continue background monitoring
-  useEffect(() => {
-    if (monitoring && isConnected && !readIntervalRef.current) {
-      readDevice() // Initial read
-      readIntervalRef.current = setInterval(readDevice, samplingPeriod)
-    }
-
-    return () => {
-      if (readIntervalRef.current) {
-        clearInterval(readIntervalRef.current)
-        readIntervalRef.current = null
-      }
-    }
-  }, [monitoring, isConnected, samplingPeriod])
 
   // Process aggregation - called on each device read
   const processAggregation = useCallback((dataPointData: Record<string, unknown>) => {
@@ -243,12 +182,12 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
     
     // Check if we've crossed a period boundary
     if (periodEnd > lastPeriodEnd.current) {
-      // Get samples from completed period
+      // Get samples from the completed period
       const periodSamples = pendingSamples.current.filter(
         s => s.timestamp > lastPeriodEnd.current && s.timestamp <= periodEnd
       )
       
-      if (periodSamples.length > 0 && signalConfigs.length > 0) {
+      if (periodSamples.length > 0) {
         // Aggregate ALL signals into a single data point
         const aggregatedData: Record<string, unknown> = {}
         
@@ -265,9 +204,7 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
           data: aggregatedData,
         }
         
-        updateDeviceMonitoring(device.id, {
-          aggregatedDataPoints: [...aggregatedDataPoints, aggPoint].slice(-5000),
-        })
+        setAggregatedDataPoints(prev => [...prev, aggPoint].slice(-5000))
         
         // Keep only samples from current period for next aggregation
         pendingSamples.current = pendingSamples.current.filter(
@@ -277,7 +214,7 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
       
       lastPeriodEnd.current = periodEnd
     }
-  }, [loggingPeriod, signalConfigs, aggregatedDataPoints, updateDeviceMonitoring, device.id])
+  }, [loggingPeriod, signalConfigs])
 
   const readDevice = useCallback(async () => {
     if (!isConnected) {
@@ -289,10 +226,7 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
       const response = await devicesApi.read(device.id)
       const dataPoint = response.data
       
-      updateDeviceMonitoring(device.id, {
-        currentValues: dataPoint.data || {},
-        lastUpdate: new Date(),
-      })
+      setCurrentValues(dataPoint.data || {})
       setLastUpdate(new Date())
       
       // Only clear error on successful read
@@ -300,7 +234,7 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
         setError(null)
       }
       
-      // Process aggregation with new data point
+      // Process aggregation with the new data point
       processAggregation(dataPoint.data || {})
     } catch (err: any) {
       console.error('Failed to read device:', err)
@@ -308,29 +242,28 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
     }
   }, [device.id, isConnected, processAggregation, error])
 
-  const handleStartMonitoring = async () => {
-    // Validate that at least one signal is selected
-    const selectedSignals = signalConfigs.filter((s: SignalConfig) => s.selected)
-    if (selectedSignals.length === 0) {
-      setError('Please select at least one signal to monitor')
-      return
+  useEffect(() => {
+    let intervalId: ReturnType<typeof setInterval> | null = null
+
+    if (monitoring && isConnected) {
+      readDevice() // Initial read
+      intervalId = setInterval(readDevice, samplingPeriod)
     }
-    
-    // Only monitor selected signals
-    const activeSignalConfigs = signalConfigs.filter((s: SignalConfig) => s.selected)
-    
-    updateDeviceMonitoring(device.id, {
-      monitoring: true,
-      startTime: Date.now(),
-      endTime: undefined,
-      aggregatedDataPoints: [],
-      signalConfigs: activeSignalConfigs,
-      currentValues: {},
-      lastUpdate: null,
-    })
-    
+
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId)
+      }
+    }
+  }, [monitoring, samplingPeriod, readDevice, isConnected])
+
+  const handleStartMonitoring = async () => {
+    setAggregatedDataPoints([])
     pendingSamples.current = []
     lastPeriodEnd.current = 0
+    setCurrentValues({})
+    monitorStartTime.current = Date.now()
+    setMonitoring(true)
     
     // Update session status to running
     updateSession(sessionId, { status: 'running' })
@@ -343,10 +276,8 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
   }
 
   const handleStopMonitoring = async () => {
-    updateDeviceMonitoring(device.id, {
-      monitoring: false,
-      endTime: Date.now(),
-    })
+    setMonitoring(false)
+    monitorEndTime.current = Date.now()
     
     // Update session status to idle
     updateSession(sessionId, { status: 'idle' })
@@ -360,28 +291,6 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
 
   const handleManualRead = () => {
     readDevice()
-  }
-
-  const handleSignalToggle = (signalName: string) => {
-    const newConfigs = signalConfigs.map((s: SignalConfig) =>
-      s.name === signalName
-        ? { ...s, selected: !s.selected }
-        : s
-    )
-    updateDeviceMonitoring(device.id, {
-      signalConfigs: newConfigs,
-    })
-  }
-
-  const handleSignalConfigChange = (signalName: string, field: 'loggingPeriod' | 'aggregation' | 'selected', value: number | AggregationType | boolean) => {
-    const newConfigs = signalConfigs.map((s: SignalConfig) => 
-      s.name === signalName 
-        ? { ...s, [field]: value }
-        : s
-    )
-    updateDeviceMonitoring(device.id, {
-      signalConfigs: newConfigs,
-    })
   }
 
   const formatValue = (value: unknown): string => {
@@ -400,7 +309,46 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
   }
 
   const registers = getRegisters()
-  const allSignals = signalConfigs || []
+
+  const handleSignalConfigChange = (signalName: string, field: 'loggingPeriod' | 'aggregation', value: number | AggregationType) => {
+    setSignalConfigs(prev => prev.map(s => 
+      s.name === signalName 
+        ? { ...s, [field]: value }
+        : s
+    ))
+  }
+
+  const handleSaveSession = async () => {
+    if (!sessionName.trim()) {
+      setError('Please enter a session name')
+      return
+    }
+
+    setSavingSession(true)
+    try {
+      await monitoringSessionsApi.create({
+        name: sessionName,
+        deviceId: device.id,
+        samplingPeriod,
+        defaultLoggingPeriod: loggingPeriod,
+        defaultAggregation,
+        signalConfigs: signalConfigs,
+        startTime: monitorStartTime.current,
+        endTime: Date.now(),
+        dataPoints: aggregatedDataPoints,
+        rawDataPoints: [],
+        comments: sessionComments,
+        createdAt: new Date().toISOString(),
+      } as any)
+      setShowSaveDialog(false)
+      setSessionName('')
+      setSessionComments('')
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to save monitoring session')
+    } finally {
+      setSavingSession(false)
+    }
+  }
 
   const resetZoom = () => {
     if (chartRef.current) {
@@ -411,10 +359,9 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
   // Prepare chart data - only uses aggregated data points
   const chartData = useMemo(() => {
     const points = aggregatedDataPoints
-    if (points.length === 0 || !monitorEndTime) return null
+    if (points.length === 0) return null
 
-    const activeSignals = allSignals.filter((s: SignalConfig) => s.selected)
-    const signalKeys = activeSignals.map((s: SignalConfig) => s.name)
+    const signalKeys = signalConfigs.map(s => s.name)
     const datasets = signalKeys.map((key, index) => {
       const colors = [
         { border: '#36a2eb', background: 'rgba(54, 162, 235, 0.1)' },
@@ -428,7 +375,7 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
       
       // Determine which y-axis to use based on rightAxisSignal selection
       const useRightAxis = rightAxisSignal === key
-      
+
       return {
         label: key,
         data: points.map(point => ({
@@ -446,14 +393,13 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
     })
 
     return { datasets }
-  }, [aggregatedDataPoints, allSignals, rightAxisSignal, monitorEndTime])
+  }, [aggregatedDataPoints, signalConfigs, rightAxisSignal])
 
   const chartOptions = useMemo(() => {
-    const activeSignals = allSignals.filter((s: SignalConfig) => s.selected)
-    const hasRightAxis = rightAxisSignal !== '' && activeSignals.some((s: SignalConfig) => s.name === rightAxisSignal)
-    const leftAxisConfig = activeSignals.find((s: SignalConfig) => s.name !== rightAxisSignal)
-    const rightAxisConfig = activeSignals.find((s: SignalConfig) => s.name === rightAxisSignal)
-    
+    const hasRightAxis = rightAxisSignal !== ''
+    const leftAxisConfig = signalConfigs.find(s => s.name !== rightAxisSignal)
+    const rightAxisConfig = signalConfigs.find(s => s.name === rightAxisSignal)
+
     return {
       responsive: true,
       maintainAspectRatio: false,
@@ -523,7 +469,7 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
       },
       interaction: { intersect: false, mode: 'index' as const },
     }
-  }, [allSignals, engineeringUnits, rightAxisSignal, monitorEndTime])
+  }, [signalConfigs, engineeringUnits, rightAxisSignal])
 
   if (loading) {
     return (
@@ -550,17 +496,8 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
             <span className={`status status-${connectionStatus}`}>
               {connectionStatus}
             </span>
-            {monitoring && <span className="monitoring-badge">● Monitoring</span>}
           </div>
           <div className="header-actions">
-            {monitoring && (
-              <button 
-                className="btn btn-secondary"
-                onClick={() => setShowSignalSelection(true)}
-              >
-                + Add Signal
-              </button>
-            )}
             <button 
               className="btn btn-secondary"
               onClick={() => setShowConfigPanel(!showConfigPanel)}
@@ -574,7 +511,7 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
         <div className="modal-body">
           {!isConnected && (
             <div className="warning-banner">
-              Connection is not established. Please connect connection first.
+              Connection is not established. Please connect the connection first.
             </div>
           )}
 
@@ -602,7 +539,7 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
                     step="100"
                     disabled={monitoring}
                   />
-                  <span className="config-hint">How often to read device</span>
+                  <span className="config-hint">How often to read the device</span>
                 </div>
 
                 <div className="config-item">
@@ -637,13 +574,12 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
               </div>
 
               {/* Signal-specific configuration */}
-              {allSignals.length > 0 && (
+              {signalConfigs.length > 0 && (
                 <div className="signal-configs">
                   <h4>Signal Configuration</h4>
                   <table className="signal-config-table">
                     <thead>
                       <tr>
-                        <th>Select</th>
                         <th>Signal</th>
                         <th>Logging Period (ms)</th>
                         <th>Aggregation</th>
@@ -651,16 +587,8 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
                       </tr>
                     </thead>
                     <tbody>
-                      {allSignals.map((signal) => (
+                      {signalConfigs.map((signal) => (
                         <tr key={signal.name}>
-                          <td>
-                            <input
-                              type="checkbox"
-                              checked={signal.selected || false}
-                              onChange={() => handleSignalToggle(signal.name)}
-                              disabled={monitoring}
-                            />
-                          </td>
                           <td>
                             {signal.name}
                             {signal.engineeringUnitId && (
@@ -709,40 +637,6 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
             </div>
           )}
 
-          {/* Signal Selection Panel for adding signals during monitoring */}
-          {showSignalSelection && (
-            <div className="signal-selection-panel">
-              <h3>Select Additional Signals</h3>
-              <div className="signal-selection-list">
-                {allSignals.filter((s: SignalConfig) => !s.selected).map((signal) => (
-                  <div key={signal.name} className="signal-selection-item">
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={signal.selected || false}
-                        onChange={() => handleSignalToggle(signal.name)}
-                      />
-                      <span>{signal.name}</span>
-                      {signal.engineeringUnitId && (
-                        <span className="unit-badge">
-                          {engineeringUnits.find(e => e.id === signal.engineeringUnitId)?.symbol}
-                        </span>
-                      )}
-                    </label>
-                  </div>
-                ))}
-                {allSignals.filter((s: SignalConfig) => !s.selected).length === 0 && (
-                  <p className="no-signals">All available signals are already selected</p>
-                )}
-              </div>
-              <div className="signal-selection-actions">
-                <button className="btn btn-secondary" onClick={() => setShowSignalSelection(false)}>
-                  Close
-                </button>
-              </div>
-            </div>
-          )}
-
           {/* Parser/Registers Info */}
           <div className="registers-section">
             <h3>
@@ -759,7 +653,6 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
                 <table>
                   <thead>
                     <tr>
-                      <th>Select</th>
                       <th>Name</th>
                       <th>Type</th>
                       <th>Address</th>
@@ -770,14 +663,6 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
                   <tbody>
                     {registers.map((reg, index) => (
                       <tr key={index}>
-                        <td>
-                          <input
-                            type="checkbox"
-                            checked={allSignals.find((s: SignalConfig) => s.name === reg.name)?.selected || false}
-                            onChange={() => handleSignalToggle(reg.name)}
-                            disabled={monitoring}
-                          />
-                        </td>
                         <td>{reg.name}</td>
                         <td>
                           <span className="register-type-badge">
@@ -801,7 +686,6 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
                 <table>
                   <thead>
                     <tr>
-                      <th>Select</th>
                       <th>Name</th>
                       <th>Data Type</th>
                       <th>Offset</th>
@@ -811,14 +695,6 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
                   <tbody>
                     {parser.fields.map((field, index) => (
                       <tr key={index}>
-                        <td>
-                          <input
-                            type="checkbox"
-                            checked={allSignals.find((s: SignalConfig) => s.name === field.name)?.selected || false}
-                            onChange={() => handleSignalToggle(field.name)}
-                            disabled={monitoring}
-                          />
-                        </td>
                         <td>{field.name}</td>
                         <td>{field.dataType}</td>
                         <td>{field.offset}</td>
@@ -861,14 +737,14 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
                   ⏹ Stop Monitoring
                 </button>
               )}
-
-              {/* Show annotation button when monitoring is stopped */}
-              {monitorEndTime && (
+              
+              {/* Show save button when there's data, regardless of monitoring state */}
+              {aggregatedDataPoints.length > 0 && !monitoring && (
                 <button
                   className="btn btn-secondary"
-                  onClick={() => setShowAnnotationEditor(true)}
+                  onClick={() => setShowSaveDialog(true)}
                 >
-                  📝 Add Annotation
+                  💾 Save Session
                 </button>
               )}
             </div>
@@ -886,46 +762,19 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
             )}
           </div>
 
-          {/* Data History - Only show after monitoring stops */}
-          {monitorEndTime && aggregatedDataPoints.length > 0 && (
+          {/* Data History */}
+          {aggregatedDataPoints.length > 0 && (
             <div className="data-history">
               <div className="data-history-header">
                 <h3>
                   Data History ({aggregatedDataPoints.length} logged points)
                 </h3>
                 <div className="view-controls">
-                  <div className="axis-controls">
-                    <label className="axis-label">
-                      Left Y-Axis:
-                      <select
-                        value={leftAxisSignal}
-                        onChange={(e) => setLeftAxisSignal(e.target.value)}
-                        className="axis-select"
-                      >
-                        <option value="">None</option>
-                        {allSignals.filter((s: SignalConfig) => s.selected).map((s) => (
-                          <option key={s.name} value={s.name}>
-                            {s.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="axis-label">
-                      Right Y-Axis:
-                      <select
-                        value={rightAxisSignal}
-                        onChange={(e) => setRightAxisSignal(e.target.value)}
-                        className="axis-select"
-                      >
-                        <option value="">None</option>
-                        {allSignals.filter((s: SignalConfig) => s.selected).map((s) => (
-                          <option key={s.name} value={s.name}>
-                            {s.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
+                  {viewMode === 'graph' && (
+                    <button className="btn btn-small" onClick={resetZoom}>
+                      Reset Zoom
+                    </button>
+                  )}
                   <div className="view-toggle">
                     <button
                       className={`toggle-btn ${viewMode === 'table' ? 'active' : ''}`}
@@ -942,11 +791,6 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
                       Graph
                     </button>
                   </div>
-                  {viewMode === 'graph' && (
-                    <button className="btn btn-small" onClick={resetZoom}>
-                      Reset Zoom
-                    </button>
-                  )}
                 </div>
               </div>
 
@@ -956,7 +800,7 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
                     <thead>
                       <tr>
                         <th>Timestamp</th>
-                        {allSignals.filter((s: SignalConfig) => s.selected).map((s: SignalConfig) => (
+                        {signalConfigs.map(s => (
                           <th key={s.name}>{s.name} ({s.aggregation})</th>
                         ))}
                       </tr>
@@ -965,7 +809,7 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
                       {aggregatedDataPoints.slice(0, 100).map((point, index) => (
                         <tr key={index}>
                           <td>{new Date(point.timestamp).toLocaleTimeString()}</td>
-                          {allSignals.filter((s: SignalConfig) => s.selected).map((s: SignalConfig) => (
+                          {signalConfigs.map(s => (
                             <td key={s.name}>{formatValue(point.data[s.name])}</td>
                           ))}
                         </tr>
@@ -976,64 +820,7 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
               ) : (
                 <div className="history-chart">
                   {chartData && (
-                    <>
-                      <div
-                        ref={chartContainerRef}
-                        className="session-chart"
-                      >
-                        <Line ref={chartRef} data={chartData} options={chartOptions} />
-                      </div>
-                      {showAnnotations && annotations.length > 0 && (
-                        <div className="annotation-list" ref={annotationListRef}>
-                          <div className="annotation-list-header">
-                            <h4>Annotations ({annotations.length})</h4>
-                          </div>
-                          <div className="annotation-items">
-                            {annotations.map(annotation => (
-                              <div
-                                key={annotation.id}
-                                ref={(el) => {
-                                  if (el) annotationItemRefs.current.set(annotation.id, el)
-                                  else annotationItemRefs.current.delete(annotation.id)
-                                }}
-                                className={`annotation-item ${selectedAnnotation === annotation.id ? 'selected' : ''}`}
-                                onClick={() => setSelectedAnnotation(annotation.id)}
-                              >
-                                <div className="annotation-item-header">
-                                  <div className="annotation-type-row">
-                                    {annotation.title && (
-                                      <span className="annotation-title-inline">
-                                        {annotation.title}
-                                      </span>
-                                    )}
-                                    <span className="annotation-type-yellow">
-                                      {annotation.type === 'region' ? 'Region' : 'Point'}
-                                    </span>
-                                  </div>
-                                  <div className="annotation-actions">
-                                    <button
-                                      className="btn-icon btn-small"
-                                      onClick={(e) => { e.stopPropagation(); setEditingAnnotation(annotation); }}
-                                      title="Edit"
-                                    >
-                                      ✏
-                                    </button>
-                                    <button
-                                      className="btn-icon btn-small btn-danger"
-                                      onClick={(e) => { e.stopPropagation(); }}
-                                      title="Delete"
-                                    >
-                                      🗑
-                                    </button>
-                                  </div>
-                                </div>
-                                <div className="annotation-text">{annotation.text}</div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </>
+                    <Line ref={chartRef} data={chartData} options={chartOptions} />
                   )}
                 </div>
               )}
@@ -1041,25 +828,56 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
           )}
         </div>
 
-        {/* Annotation Editor */}
-        {showAnnotationEditor && monitorEndTime && (
-          <div className="modal-overlay" onClick={() => setShowAnnotationEditor(false)}>
+        {/* Save Dialog */}
+        {showSaveDialog && (
+          <div className="modal-overlay" onClick={() => setShowSaveDialog(false)}>
             <div className="modal-content modal-small" onClick={(e) => e.stopPropagation()}>
-              <AnnotationEditor
-                monitoringSessionId={device.id} // Use device ID as session ID for annotations
-                editingAnnotation={editingAnnotation}
-                onClose={() => {
-                  setShowAnnotationEditor(false)
-                  setEditingAnnotation(null)
-                }}
-                onSave={(annotation) => {
-                  if (editingAnnotation) {
-                    setAnnotations(prev => prev.map(a => a.id === annotation.id ? annotation : a))
-                  } else {
-                    setAnnotations(prev => [...prev, annotation])
-                  }
-                }}
-              />
+              <div className="modal-header">
+                <h3>Save Monitoring Session</h3>
+                <button className="btn-icon" onClick={() => setShowSaveDialog(false)}>×</button>
+              </div>
+              <div className="modal-body">
+                <div className="form-group">
+                  <label htmlFor="session-name">Session Name:</label>
+                  <input
+                    id="session-name"
+                    type="text"
+                    value={sessionName}
+                    onChange={(e) => setSessionName(e.target.value)}
+                    placeholder="Enter a name for this session"
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="session-comments">Comments:</label>
+                  <textarea
+                    id="session-comments"
+                    value={sessionComments}
+                    onChange={(e) => setSessionComments(e.target.value)}
+                    placeholder="Add notes about this monitoring session"
+                    rows={3}
+                  />
+                </div>
+                <div className="session-stats">
+                  <p>Aggregated data points: {aggregatedDataPoints.length}</p>
+                  <p>Duration: {monitorStartTime.current > 0 ?
+                    `${Math.round(((monitorEndTime.current || Date.now()) - monitorStartTime.current) / 1000)}s` : 'N/A'}</p>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button 
+                  className="btn btn-secondary" 
+                  onClick={() => setShowSaveDialog(false)}
+                >
+                  Cancel
+                </button>
+                <button 
+                  className="btn btn-primary" 
+                  onClick={handleSaveSession}
+                  disabled={savingSession || !sessionName.trim()}
+                >
+                  {savingSession ? 'Saving...' : 'Save'}
+                </button>
+              </div>
             </div>
           </div>
         )}

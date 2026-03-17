@@ -156,6 +156,7 @@ export interface SignalConfig {
   loggingPeriod: number // milliseconds
   aggregation: AggregationType
   engineeringUnitId?: string
+  selected?: boolean // Whether this signal is actively monitored
 }
 
 export interface MonitoringSession {
