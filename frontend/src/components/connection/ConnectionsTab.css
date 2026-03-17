@@ -200,6 +200,65 @@
   height: 16px;
 }
 
+.connection-actions-row .btn-danger {
+  background: none;
+  border: none;
+  color: #dc3545;
+  border-radius: 0.25rem;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.connection-actions-row .btn-danger:hover {
+  background-color: #dc3545;
+  color: #fff;
+}
+
+.connection-actions-row .btn-connect {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s, background-color 0.2s, transform 0.1s;
+}
+
+.connection-actions-row .btn-connect.connected {
+  color: #39ff14;
+}
+
+.connection-actions-row .btn-connect.connected:hover {
+  background-color: #1a4d0f;
+  color: #39ff14;
+  transform: scale(1.05);
+}
+
+.connection-actions-row .btn-connect.disconnected {
+  color: #228b22;
+}
+
+.connection-actions-row .btn-connect.disconnected:hover {
+  background-color: #1a3a1a;
+  color: #39ff14;
+  transform: scale(1.05);
+}
+
+.connection-actions-row .btn-connect:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.device-actions .btn-danger {
+  background: none;
+  border: none;
+  color: #dc3545;
+  border-radius: 0.25rem;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.device-actions .btn-danger:hover {
+  background-color: #dc3545;
+  color: #fff;
+}
+
 .connection-actions-row .btn-small {
   height: 32px;
   display: flex;

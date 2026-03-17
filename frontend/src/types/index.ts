@@ -40,6 +40,7 @@ export interface Parser {
   fields: ParserField[]
   builtinType: string | null
   modbusRegisters?: ModbusRegister[]
+  description?: string
   createdAt: string
   updatedAt: string
 }

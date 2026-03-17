@@ -159,12 +159,14 @@
   color: #dc3545;
   padding: 0.25rem;
   line-height: 1;
-  transition: color 0.2s, transform 0.1s;
+  border-radius: 0.25rem;
+  transition: color 0.2s, transform 0.1s, background-color 0.2s;
 }
 
 .btn-icon.btn-danger:hover {
-  color: #ff4d5e;
-  transform: scale(1.15);
+  color: #fff;
+  background-color: #dc3545;
+  transform: scale(1.05);
 }
 
 .loading {

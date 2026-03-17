@@ -5,13 +5,14 @@ import type { Device, Connection, Parser } from '@/types'
 import './DeviceForm.css'
 
 interface DeviceFormProps {
+  device?: Device
   connections: Connection[]
   onSave: (device: Partial<Device>) => Promise<void>
   onClose: () => void
   defaultConnectionId?: string
 }
 
-export function DeviceForm({ connections, onSave, onClose, defaultConnectionId }: DeviceFormProps) {
+export function DeviceForm({ device, connections, onSave, onClose, defaultConnectionId }: DeviceFormProps) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [connectionId, setConnectionId] = useState(defaultConnectionId || '')
@@ -22,6 +23,16 @@ export function DeviceForm({ connections, onSave, onClose, defaultConnectionId }
   const [submitting, setSubmitting] = useState(false)
   const [showParserForm, setShowParserForm] = useState(false)
 
+  useEffect(() => {
+    if (device) {
+      setName(device.name || '')
+      setDescription(device.description || '')
+      setConnectionId(device.connectionId || '')
+      setAddress(device.address || '')
+      setParserId(device.parserId || '')
+    }
+  }, [device])
+
   const loadParsers = async () => {
     try {
       const response = await parsersApi.list()
@@ -31,7 +42,7 @@ export function DeviceForm({ connections, onSave, onClose, defaultConnectionId }
     }
   }
 
-  const handleCreateParser = async (_parserData: Partial<Parser>) => {
+  const handleCreateParser = async () => {
     await loadParsers()
     setShowParserForm(false)
     // Select the newly created parser
@@ -39,7 +50,7 @@ export function DeviceForm({ connections, onSave, onClose, defaultConnectionId }
     const newParsers = response.data || []
     if (newParsers.length > 0) {
       // Get the most recently created parser
-      const latestParser = newParsers.sort((a, b) => 
+      const latestParser = newParsers.sort((a, b) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       )[0]
       setParserId(latestParser.id)
@@ -89,7 +100,7 @@ export function DeviceForm({ connections, onSave, onClose, defaultConnectionId }
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content modal-large" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>Add Device</h2>
+          <h2>{device ? 'Edit Device' : 'Add Device'}</h2>
           <button className="btn-icon" onClick={onClose}>
             ×
           </button>
@@ -190,7 +201,7 @@ export function DeviceForm({ connections, onSave, onClose, defaultConnectionId }
               Cancel
             </button>
             <button type="submit" className="btn btn-primary" disabled={submitting}>
-              {submitting ? 'Creating...' : 'Create'}
+              {submitting ? (device ? 'Updating...' : 'Creating...') : (device ? 'Update' : 'Create')}
             </button>
           </div>
         </form>

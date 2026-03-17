@@ -233,31 +233,27 @@ export function ConnectionsTab({ sessionId, connections, onUpdate }: Connections
                             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                           </svg>
                         </button>
-                        {isConnected ? (
-                          <button
-                            className="btn btn-secondary btn-small"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleDisconnect(connection.id)
-                            }}
-                            disabled={isConnecting}
-                            title="Disconnect"
-                          >
-                            {isConnecting ? 'Disconnecting...' : 'Disconnect'}
-                          </button>
-                        ) : (
-                          <button
-                            className="btn btn-primary btn-small"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleConnect(connection.id)
-                            }}
-                            disabled={isConnecting || connection.status === 'connecting'}
-                            title="Connect"
-                          >
-                            {isConnecting || connection.status === 'connecting' ? 'Connecting...' : 'Connect'}
-                          </button>
-                        )}
+                        <button
+                          className={`btn-icon btn-connect ${isConnected ? 'connected' : 'disconnected'}`}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            isConnected ? handleDisconnect(connection.id) : handleConnect(connection.id)
+                          }}
+                          disabled={isConnecting || connection.status === 'connecting'}
+                          title={isConnected ? 'Connected. Click to disconnect' : 'Disconnected. Click to connect'}
+                        >
+                          {isConnected ? (
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+                            </svg>
+                          ) : (
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                              <line x1="9" y1="15" x2="15" y2="9"></line>
+                            </svg>
+                          )}
+                        </button>
                         <button className="btn-icon" onClick={(e) => { e.stopPropagation(); toggleConnection(connection.id) }}>
                           {isExpanded ? '▼' : '▶'}
                         </button>

@@ -53,6 +53,7 @@ type Parser struct {
 	Fields          []ParserField    `json:"fields"`
 	BuiltInType     string           `json:"builtinType"`
 	ModbusRegisters []ModbusRegister `json:"modbusRegisters"`
+	Description     string           `json:"description,omitempty"`
 	CreatedAt       time.Time        `json:"createdAt"`
 	UpdatedAt       time.Time        `json:"updatedAt"`
 }

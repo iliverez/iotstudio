@@ -103,6 +103,7 @@ func (s *SQLiteStorage) migrate() error {
 			fields TEXT NOT NULL,
 			built_in_type TEXT,
 			modbus_registers TEXT,
+			description TEXT,
 			created_at INTEGER NOT NULL,
 			updated_at INTEGER NOT NULL
 		)`,
@@ -171,6 +172,7 @@ func (s *SQLiteStorage) migrate() error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_annotations_session ON annotations(monitoring_session_id)`,
 		`ALTER TABLE annotations ADD COLUMN title TEXT DEFAULT ''`,
+		`ALTER TABLE parsers ADD COLUMN description TEXT DEFAULT ''`,
 	}
 
 	for _, migration := range migrations {
@@ -789,8 +791,8 @@ func (s *SQLiteStorage) CreateParser(ctx context.Context, parser *models.Parser)
 	}
 
 	query := `
-		INSERT INTO parsers (id, name, type, fields, built_in_type, modbus_registers, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO parsers (id, name, type, fields, built_in_type, modbus_registers, description, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := s.db.ExecContext(ctx, query,
@@ -800,6 +802,7 @@ func (s *SQLiteStorage) CreateParser(ctx context.Context, parser *models.Parser)
 		string(fieldsJSON),
 		nullString(parser.BuiltInType),
 		string(modbusRegistersJSON),
+		nullString(parser.Description),
 		parser.CreatedAt.Unix(),
 		parser.UpdatedAt.Unix(),
 	)
@@ -817,7 +820,7 @@ func (s *SQLiteStorage) CreateParser(ctx context.Context, parser *models.Parser)
 
 func (s *SQLiteStorage) GetParser(ctx context.Context, id string) (*models.Parser, error) {
 	query := `
-		SELECT id, name, type, fields, built_in_type, modbus_registers, created_at, updated_at
+		SELECT id, name, type, fields, built_in_type, modbus_registers, description, created_at, updated_at
 		FROM parsers
 		WHERE id = ?
 	`
@@ -827,6 +830,7 @@ func (s *SQLiteStorage) GetParser(ctx context.Context, id string) (*models.Parse
 	var builtInType sql.NullString
 	var fieldsJSON string
 	var modbusRegistersJSON sql.NullString
+	var description sql.NullString
 
 	err := s.db.QueryRowContext(ctx, query, id).Scan(
 		&parser.ID,
@@ -835,6 +839,7 @@ func (s *SQLiteStorage) GetParser(ctx context.Context, id string) (*models.Parse
 		&fieldsJSON,
 		&builtInType,
 		&modbusRegistersJSON,
+		&description,
 		&createdAt,
 		&updatedAt,
 	)
@@ -860,6 +865,10 @@ func (s *SQLiteStorage) GetParser(ctx context.Context, id string) (*models.Parse
 		parser.BuiltInType = builtInType.String
 	}
 
+	if description.Valid {
+		parser.Description = description.String
+	}
+
 	parser.CreatedAt = time.Unix(createdAt, 0)
 	parser.UpdatedAt = time.Unix(updatedAt, 0)
 
@@ -868,7 +877,7 @@ func (s *SQLiteStorage) GetParser(ctx context.Context, id string) (*models.Parse
 
 func (s *SQLiteStorage) ListParsers(ctx context.Context) ([]*models.Parser, error) {
 	query := `
-		SELECT id, name, type, fields, built_in_type, modbus_registers, created_at, updated_at
+		SELECT id, name, type, fields, built_in_type, modbus_registers, description, created_at, updated_at
 		FROM parsers
 		ORDER BY created_at DESC
 	`
@@ -887,6 +896,7 @@ func (s *SQLiteStorage) ListParsers(ctx context.Context) ([]*models.Parser, erro
 		var builtInType sql.NullString
 		var fieldsJSON string
 		var modbusRegistersJSON sql.NullString
+		var description sql.NullString
 
 		if err := rows.Scan(
 			&parser.ID,
@@ -895,6 +905,7 @@ func (s *SQLiteStorage) ListParsers(ctx context.Context) ([]*models.Parser, erro
 			&fieldsJSON,
 			&builtInType,
 			&modbusRegistersJSON,
+			&description,
 			&createdAt,
 			&updatedAt,
 		); err != nil {
@@ -913,6 +924,10 @@ func (s *SQLiteStorage) ListParsers(ctx context.Context) ([]*models.Parser, erro
 
 		if builtInType.Valid {
 			parser.BuiltInType = builtInType.String
+		}
+
+		if description.Valid {
+			parser.Description = description.String
 		}
 
 		parser.CreatedAt = time.Unix(createdAt, 0)
@@ -944,7 +959,7 @@ func (s *SQLiteStorage) UpdateParser(ctx context.Context, parser *models.Parser)
 
 	query := `
 		UPDATE parsers
-		SET name = ?, type = ?, fields = ?, built_in_type = ?, modbus_registers = ?, updated_at = ?
+		SET name = ?, type = ?, fields = ?, built_in_type = ?, modbus_registers = ?, description = ?, updated_at = ?
 		WHERE id = ?
 	`
 
@@ -955,6 +970,7 @@ func (s *SQLiteStorage) UpdateParser(ctx context.Context, parser *models.Parser)
 		string(fieldsJSON),
 		nullString(parser.BuiltInType),
 		string(modbusRegistersJSON),
+		nullString(parser.Description),
 		parser.UpdatedAt.Unix(),
 		parser.ID,
 	)

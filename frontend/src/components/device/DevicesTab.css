@@ -33,6 +33,7 @@
   align-items: flex-start;
   justify-content: space-between;
   margin-bottom: 0.75rem;
+  gap: 0.75rem;
 }
 
 .device-card-header .device-info h4 {
@@ -69,4 +70,52 @@
 
 .device-detail .value {
   color: #fff;
+}
+
+.device-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.device-actions .btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 1rem;
+  line-height: 1;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #888;
+  border-radius: 0.25rem;
+  transition: color 0.2s, background-color 0.2s;
+}
+
+.device-actions .btn-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.device-actions .btn-icon:hover {
+  color: #fff;
+  background-color: #444;
+}
+
+.device-actions .btn-edit:hover {
+  background-color: #444;
+  color: #fff;
+}
+
+.device-actions .btn-danger {
+  color: #dc3545;
+}
+
+.device-actions .btn-danger:hover {
+  color: #fff;
+  background-color: #dc3545;
 }

@@ -14,6 +14,7 @@ interface DevicesTabProps {
 export function DevicesTab({ sessionId, devices, connections, onUpdate }: DevicesTabProps) {
   const [showForm, setShowForm] = useState(false)
   const [parsers, setParsers] = useState<Parser[]>([])
+  const [editingDevice, setEditingDevice] = useState<Device | null>(null)
 
   useEffect(() => {
     const loadParsers = async () => {
@@ -28,9 +29,19 @@ export function DevicesTab({ sessionId, devices, connections, onUpdate }: Device
   }, [])
 
   const handleCreateDevice = async (deviceData: Partial<Device>) => {
-    await devicesApi.create(sessionId, deviceData)
+    if (editingDevice) {
+      await devicesApi.update(editingDevice.id, deviceData)
+      setEditingDevice(null)
+    } else {
+      await devicesApi.create(sessionId, deviceData)
+    }
     setShowForm(false)
     onUpdate()
+  }
+
+  const handleEditDevice = (device: Device) => {
+    setEditingDevice(device)
+    setShowForm(true)
   }
 
   const handleDeleteDevice = async (id: string, name: string) => {
@@ -80,13 +91,22 @@ export function DevicesTab({ sessionId, devices, connections, onUpdate }: Device
                     <p className="device-description">{device.description}</p>
                   )}
                 </div>
-                <button
-                  className="btn-icon btn-danger"
-                  onClick={() => handleDeleteDevice(device.id, device.name)}
-                  title="Delete device"
-                >
-                  ×
-                </button>
+                <div className="device-actions">
+                  <button
+                    className="btn-icon btn-edit"
+                    onClick={() => handleEditDevice(device)}
+                    title="Edit device"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+                  </button>
+                  <button
+                    className="btn-icon btn-danger"
+                    onClick={() => handleDeleteDevice(device.id, device.name)}
+                    title="Delete device"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                  </button>
+                </div>
               </div>
               <div className="device-card-body">
                 <div className="device-detail">
@@ -113,9 +133,13 @@ export function DevicesTab({ sessionId, devices, connections, onUpdate }: Device
 
       {showForm && (
         <DeviceForm
+          device={editingDevice || undefined}
           connections={connections}
           onSave={handleCreateDevice}
-          onClose={() => setShowForm(false)}
+          onClose={() => {
+            setShowForm(false)
+            setEditingDevice(null)
+          }}
         />
       )}
     </div>
