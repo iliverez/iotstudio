@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react'
 import { devicesApi, parsersApi, engineeringUnitsApi, sessionsApi } from '@/api/client'
 import { useDashboardStore } from '@/stores/dashboardStore'
 import type { Device, Parser, ModbusRegister, SignalConfig, AggregationType, RawDataPoint, AggregatedDataPoint, EngineeringUnit, Annotation } from '@/types'
@@ -1120,95 +1120,97 @@ export function DeviceMonitor({ device, connectionStatus, sessionId, onClose }: 
                         <Line ref={chartRef} data={chartData} options={chartOptions} />
                       </div>
                       {showAnnotations && (
-                        <div className="annotation-markers">
-                          {annotations
-                            .filter(a => a.type === 'region' && a.regionStart && a.regionEnd)
-                            .map(annotation => {
-                              if (!chartRef.current) return null
-                              const chart = chartRef.current
-                              const scale = chart.scales.x
+                        <Fragment>
+                          <div className="annotation-markers">
+                            {annotations
+                              .filter(a => a.type === 'region' && a.regionStart && a.regionEnd)
+                              .map(annotation => {
+                                if (!chartRef.current) return null
+                                const chart = chartRef.current
+                                const scale = chart.scales.x
 
-                              const startXPixel = scale.getPixelForValue(annotation.regionStart!)
-                              const endXPixel = scale.getPixelForValue(annotation.regionEnd!)
+                                const startXPixel = scale.getPixelForValue(annotation.regionStart!)
+                                const endXPixel = scale.getPixelForValue(annotation.regionEnd!)
 
-                              return (
-                                <div
-                                  key={annotation.id}
-                                  className={`annotation-region ${selectedAnnotation === annotation.id ? 'selected' : ''}`}
-                                  style={{
-                                    left: `${startXPixel}px`,
-                                    width: `${endXPixel - startXPixel}px`,
-                                  }}
-                                >
+                                return (
                                   <div
-                                    className="annotation-region-clickable"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      setSelectedAnnotation(annotation.id)
+                                    key={annotation.id}
+                                    className={`annotation-region ${selectedAnnotation === annotation.id ? 'selected' : ''}`}
+                                    style={{
+                                      left: `${startXPixel}px`,
+                                      width: `${endXPixel - startXPixel}px`,
                                     }}
-                                    onMouseEnter={() => setHoveredAnnotation(annotation.id)}
-                                    onMouseLeave={() => setHoveredAnnotation(null)}
                                   >
-                                    {(hoveredAnnotation === annotation.id || selectedAnnotation === annotation.id) && (
-                                      <div className="annotation-tooltip">
+                                    <div
+                                      className="annotation-region-clickable"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setSelectedAnnotation(annotation.id)
+                                      }}
+                                      onMouseEnter={() => setHoveredAnnotation(annotation.id)}
+                                      onMouseLeave={() => setHoveredAnnotation(null)}
+                                      >
+                                      {(hoveredAnnotation === annotation.id || selectedAnnotation === annotation.id) && (
+                                        <div className="annotation-tooltip">
+                                          <div className="annotation-tooltip-title">
+                                            {annotation.title || (annotation.type === 'region' ? 'Region' : 'Point')}
+                                          </div>
+                                          {annotation.text && (
+                                            <div className="annotation-tooltip-text">{annotation.text}</div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                )
+                              )}
+                            {annotations
+                              .filter(a => a.type === 'point' && a.points.length > 0)
+                              .map(annotation => (
+                                annotation.points.map((point, idx) => {
+                                  if (!chartRef.current) return null
+                                  const chart = chartRef.current
+                                  const scale = chart.scales.x
+
+                                  const xPosPixel = scale.getPixelForValue(point.timestamp)
+                                  return (
+                                    <div
+                                      key={`${annotation.id}-${idx}`}
+                                      className={`annotation-point-marker ${selectedAnnotation === annotation.id ? 'selected' : ''}`}
+                                      style={{
+                                        left: `${xPosPixel}px`,
+                                      }}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setSelectedAnnotation(annotation.id)
+                                      }}
+                                    >
+                                      <div className="annotation-point-tooltip">
                                         <div className="annotation-tooltip-title">
-                                          {annotation.title || (annotation.type === 'region' ? 'Region' : 'Point')}
+                                          {annotation.title || 'Point'}
+                                        </div>
+                                        <div className="annotation-tooltip-signal">
+                                          {point.signalName}: {point.value}
                                         </div>
                                         {annotation.text && (
                                           <div className="annotation-tooltip-text">{annotation.text}</div>
                                         )}
                                       </div>
-                                    )}
-                                  </div>
-                                </div>
-                              )
-                            })}
-                          {annotations
-                            .filter(a => a.type === 'point' && a.points.length > 0)
-                            .map(annotation => (
-                              annotation.points.map((point, idx) => {
-                                if (!chartRef.current) return null
-                                const chart = chartRef.current
-                                const scale = chart.scales.x
-
-                                const xPosPixel = scale.getPixelForValue(point.timestamp)
-                                return (
-                                  <div
-                                    key={`${annotation.id}-${idx}`}
-                                    className={`annotation-point-marker ${selectedAnnotation === annotation.id ? 'selected' : ''}`}
-                                    style={{
-                                      left: `${xPosPixel}px`,
-                                    }}
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      setSelectedAnnotation(annotation.id)
-                                    }}
-                                  >
-                                    <div className="annotation-point-tooltip">
-                                      <div className="annotation-tooltip-title">
-                                        {annotation.title || 'Point'}
-                                      </div>
-                                      <div className="annotation-tooltip-signal">
-                                        {point.signalName}: {point.value}
-                                      </div>
-                                      {annotation.text && (
-                                        <div className="annotation-tooltip-text">{annotation.text}</div>
-                                      )}
                                     </div>
-                                  </div>
                                 )
                               })
-                            ))}
-                          {isDragging && dragStartX !== null && dragCurrentX !== null && monitorEndTime && (
-                            <div
-                              className="drag-selection"
-                              style={{
-                                left: `${Math.min(dragStartX, dragCurrentX)}px`,
-                                width: `${Math.abs(dragCurrentX - dragStartX)}px`,
-                              }}
-                            />
-                          )}
-                        </div>
+                            )}
+                            {isDragging && dragStartX !== null && dragCurrentX !== null && monitorEndTime && (
+                              <div
+                                className="drag-selection"
+                                style={{
+                                  left: `${Math.min(dragStartX, dragCurrentX)}px`,
+                                  width: `${Math.abs(dragCurrentX - dragStartX)}px`,
+                                }}
+                              />
+                            )}
+                          </div>
+                        <>
                       )}
                         <div className="annotation-list" ref={annotationListRef}>
                           <div className="annotation-list-header">
