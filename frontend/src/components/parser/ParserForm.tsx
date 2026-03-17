@@ -42,20 +42,20 @@ const DATA_TYPES = [
 ]
 
 const MODBUS_DATA_TYPES = [
-  'bool',
-  'int16',
-  'uint16',
-  'int32',
-  'uint32',
-  'float32',
-  'float64',
+  { value: 'bool', label: 'B' },
+  { value: 'int16', label: 'I16' },
+  { value: 'uint16', label: 'U16' },
+  { value: 'int32', label: 'I32' },
+  { value: 'uint32', label: 'U32' },
+  { value: 'float32', label: 'F32' },
+  { value: 'float64', label: 'F64' },
 ]
 
 const MODBUS_REGISTER_TYPES = [
-  { value: 'coil', label: 'Coil (FC01/FC05)', description: 'Read/Write single bit' },
-  { value: 'discrete_input', label: 'Discrete Input (FC02)', description: 'Read-only single bit' },
-  { value: 'holding_register', label: 'Holding Register (FC03/FC06/FC16)', description: 'Read/Write 16-bit register' },
-  { value: 'input_register', label: 'Input Register (FC04)', description: 'Read-only 16-bit register' },
+  { value: 'coil', label: 'CL', description: 'Coil - Read/Write single bit (FC01/FC05)' },
+  { value: 'discrete_input', label: 'DI', description: 'Discrete Input - Read-only single bit (FC02)' },
+  { value: 'holding_register', label: 'HR', description: 'Holding Register - Read/Write 16-bit (FC03/FC06/FC16)' },
+  { value: 'input_register', label: 'IR', description: 'Input Register - Read-only 16-bit (FC04)' },
 ]
 
 const ENDIANNESS_OPTIONS = ['big', 'little']
@@ -85,6 +85,7 @@ const DEFAULT_MODBUS_REGISTER: ModbusRegister = {
 
 export function ParserForm({ parser, onSave, onClose, deviceId }: ParserFormProps) {
   const [name, setName] = useState(parser?.name || '')
+  const [description, setDescription] = useState(parser?.description || '')
   const [parserType, setParserType] = useState<'visual' | 'javascript' | 'builtin' | 'modbus'>(
     parser?.type || 'visual'
   )
@@ -162,7 +163,7 @@ export function ParserForm({ parser, onSave, onClose, deviceId }: ParserFormProp
   ) => {
     const newRegisters = [...modbusRegisters]
     newRegisters[index] = { ...newRegisters[index], [key]: value }
-    
+
     // Auto-adjust quantity based on data type
     if (key === 'dataType') {
       const dataType = value as string
@@ -174,7 +175,19 @@ export function ParserForm({ parser, onSave, onClose, deviceId }: ParserFormProp
         newRegisters[index].quantity = 1
       }
     }
-    
+
+    setModbusRegisters(newRegisters)
+  }
+
+  const handleCloneRegister = (index: number) => {
+    const sourceRegister = modbusRegisters[index]
+    const newRegister: ModbusRegister = {
+      ...sourceRegister,
+      name: `${sourceRegister.name}_copy`,
+      address: sourceRegister.address + sourceRegister.quantity,
+    }
+    const newRegisters = [...modbusRegisters]
+    newRegisters.splice(index + 1, 0, newRegister)
     setModbusRegisters(newRegisters)
   }
 
@@ -184,6 +197,11 @@ export function ParserForm({ parser, onSave, onClose, deviceId }: ParserFormProp
 
     if (!name.trim()) {
       setError('Parser name is required')
+      return
+    }
+
+    if (description.length > 500) {
+      setError('Description must be less than 500 characters')
       return
     }
 
@@ -201,6 +219,7 @@ export function ParserForm({ parser, onSave, onClose, deviceId }: ParserFormProp
     try {
       const parserData: Partial<Parser> = {
         name: name.trim(),
+        description: description.trim() || undefined,
         type: isBuiltin ? 'builtin' : parserType,
         builtinType: isBuiltin ? builtinType : null,
         fields: isBuiltin
@@ -228,7 +247,7 @@ export function ParserForm({ parser, onSave, onClose, deviceId }: ParserFormProp
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content modal-large" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-content modal-large parser-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>{parser?.id ? 'Edit Parser' : 'Create Parser'}</h2>
           <button className="btn-icon" onClick={onClose}>
@@ -266,6 +285,20 @@ export function ParserForm({ parser, onSave, onClose, deviceId }: ParserFormProp
                 ))}
               </select>
             </div>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="parser-description">Description</label>
+            <textarea
+              id="parser-description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Optional description for this parser..."
+              disabled={submitting}
+              rows={3}
+              maxLength={500}
+            />
+            <div className="character-count">{description.length} / 500</div>
           </div>
 
           {parserType === 'builtin' && (
@@ -422,7 +455,7 @@ export function ParserForm({ parser, onSave, onClose, deviceId }: ParserFormProp
           )}
 
           {parserType === 'modbus' && (
-            <div className="fields-section">
+            <div className="fields-section modbus-section">
               <div className="fields-header">
                 <h3>Modbus Registers</h3>
                 <button
@@ -435,12 +468,24 @@ export function ParserForm({ parser, onSave, onClose, deviceId }: ParserFormProp
                 </button>
               </div>
 
-              <div className="fields-list">
-                {modbusRegisters.map((reg, index) => (
-                  <div key={index} className="field-row modbus-register-row">
-                    <div className="field-grid modbus-grid">
-                      <div className="form-group">
-                        <label>Register Name</label>
+              <div className="modbus-table-container">
+                <div className="modbus-table-header">
+                  <div className="modbus-header-cell">Name</div>
+                  <div className="modbus-header-cell">Type</div>
+                  <div className="modbus-header-cell">Address</div>
+                  <div className="modbus-header-cell">Data Type</div>
+                  <div className="modbus-header-cell">Qty</div>
+                  <div className="modbus-header-cell">Endian</div>
+                  <div className="modbus-header-cell">Scale</div>
+                  <div className="modbus-header-cell">Offset</div>
+                  <div className="modbus-header-cell">Unit</div>
+                  <div className="modbus-header-cell actions">Actions</div>
+                </div>
+
+                <div className="modbus-table-body">
+                  {modbusRegisters.map((reg, index) => (
+                    <div key={index} className="modbus-table-row">
+                      <div className="modbus-table-cell table-input">
                         <input
                           type="text"
                           value={reg.name}
@@ -452,8 +497,7 @@ export function ParserForm({ parser, onSave, onClose, deviceId }: ParserFormProp
                         />
                       </div>
 
-                      <div className="form-group">
-                        <label>Register Type</label>
+                      <div className="modbus-table-cell table-select">
                         <select
                           value={reg.registerType}
                           onChange={(e) =>
@@ -469,8 +513,7 @@ export function ParserForm({ parser, onSave, onClose, deviceId }: ParserFormProp
                         </select>
                       </div>
 
-                      <div className="form-group">
-                        <label>Address</label>
+                      <div className="modbus-table-cell table-input">
                         <input
                           type="number"
                           value={reg.address}
@@ -483,8 +526,7 @@ export function ParserForm({ parser, onSave, onClose, deviceId }: ParserFormProp
                         />
                       </div>
 
-                      <div className="form-group">
-                        <label>Data Type</label>
+                      <div className="modbus-table-cell table-select">
                         <select
                           value={reg.dataType}
                           onChange={(e) =>
@@ -493,15 +535,14 @@ export function ParserForm({ parser, onSave, onClose, deviceId }: ParserFormProp
                           disabled={submitting}
                         >
                           {MODBUS_DATA_TYPES.map((dt) => (
-                            <option key={dt} value={dt}>
-                              {dt}
+                            <option key={dt.value} value={dt.value}>
+                              {dt.label}
                             </option>
                           ))}
                         </select>
                       </div>
 
-                      <div className="form-group">
-                        <label>Quantity</label>
+                      <div className="modbus-table-cell table-input">
                         <input
                           type="number"
                           value={reg.quantity}
@@ -514,8 +555,7 @@ export function ParserForm({ parser, onSave, onClose, deviceId }: ParserFormProp
                         />
                       </div>
 
-                      <div className="form-group">
-                        <label>Endianness</label>
+                      <div className="modbus-table-cell table-select">
                         <select
                           value={reg.endianness}
                           onChange={(e) =>
@@ -531,8 +571,7 @@ export function ParserForm({ parser, onSave, onClose, deviceId }: ParserFormProp
                         </select>
                       </div>
 
-                      <div className="form-group">
-                        <label>Scale</label>
+                      <div className="modbus-table-cell table-input">
                         <input
                           type="number"
                           value={reg.scale}
@@ -544,8 +583,7 @@ export function ParserForm({ parser, onSave, onClose, deviceId }: ParserFormProp
                         />
                       </div>
 
-                      <div className="form-group">
-                        <label>Offset</label>
+                      <div className="modbus-table-cell table-input">
                         <input
                           type="number"
                           value={reg.offset}
@@ -557,8 +595,7 @@ export function ParserForm({ parser, onSave, onClose, deviceId }: ParserFormProp
                         />
                       </div>
 
-                      <div className="form-group">
-                        <label>Engineering Unit</label>
+                      <div className="modbus-table-cell table-select">
                         <select
                           value={reg.engineeringUnitId || ''}
                           onChange={(e) =>
@@ -569,26 +606,35 @@ export function ParserForm({ parser, onSave, onClose, deviceId }: ParserFormProp
                           <option value="">None</option>
                           {engineeringUnits.map((unit) => (
                             <option key={unit.id} value={unit.id}>
-                              {unit.name} ({unit.symbol})
+                              {unit.symbol}
                             </option>
                           ))}
                         </select>
                       </div>
 
-                      <div className="form-group field-actions">
+                      <div className="modbus-table-cell table-actions">
                         <button
                           type="button"
-                          className="btn btn-danger btn-small"
+                          className="btn btn-icon btn-clone"
+                          onClick={() => handleCloneRegister(index)}
+                          disabled={submitting}
+                          title="Clone register with consecutive address"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-.55.45-1 1-1h10c.55 0 1 .45 1 1"/></svg>
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-icon btn-danger"
                           onClick={() => handleRemoveModbusRegister(index)}
                           disabled={submitting || modbusRegisters.length <= 1}
                           title="Remove register"
                         >
-                          ×
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
                         </button>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
 
               <div className="modbus-help">
